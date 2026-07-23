@@ -87,7 +87,7 @@ button{font-family:inherit}
 .tab.overview .emoji{font-size:17px}
 
 /* ---- Main ---- */
-.main{padding:0; min-width:0; display:flex; flex-direction:column}
+.main{padding:0; min-width:0; display:flex; flex-direction:column; overflow-x:hidden}
 .topbar{
   position:sticky; top:0; z-index:5;
   display:flex; align-items:center; gap:14px; flex-wrap:wrap;
@@ -110,7 +110,7 @@ button{font-family:inherit}
 .act:hover{color:var(--ink); border-color:var(--accent)}
 .act.icon{padding:8px 10px}
 
-.content{padding:26px 30px 60px; max-width:920px; width:100%}
+.content{padding:26px 30px 60px; max-width:920px; width:100%; margin:0 auto}
 
 /* ---- Section header ---- */
 .sec-head{margin-bottom:20px}
@@ -142,9 +142,13 @@ button{font-family:inherit}
 .item.is-done .check{background:var(--done); border-color:var(--done); color:var(--done-ink)}
 
 .item-body{min-width:0}
-.item-text{margin:0; font-size:15px; font-weight:600; color:var(--ink)}
+.item-text{margin:0; font-size:15px; font-weight:600; color:var(--ink); overflow-wrap:break-word}
 .item.is-done .item-text{text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--done) 70%, transparent); color:var(--ink-dim)}
-.item-detail{margin:4px 0 0; font-size:12.5px; color:var(--muted)}
+.item-detail{margin:4px 0 0; font-size:12.5px; color:var(--muted); overflow-wrap:break-word}
+.chip{display:inline-flex;align-items:center;gap:5px;margin-top:8px;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.03em;
+  color:var(--ink-dim);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:99px;padding:3px 10px}
 .pill-done{display:inline-flex;align-items:center;gap:5px;margin-top:8px;
   font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:lowercase;
   color:var(--done);background:color-mix(in srgb,var(--done) 15%, transparent);
@@ -377,7 +381,7 @@ const CRONO = [
 /* ============================ Estado ============================ */
 const STORE_KEY = "estudos-ia-data-v1";
 const THEME_KEY = "estudos-ia-theme";
-let state, active = "resumo", editingId = null;
+let state, active = "afazer", editingId = null;
 
 const clone = o => JSON.parse(JSON.stringify(o));
 const $ = s => document.querySelector(s);
@@ -400,7 +404,14 @@ const uid = () => "x"+Math.abs(Date.now()+Math.floor(performance.now()*1000)).to
 function renderNav(){
   const nav = $("#nav");
   const ov = totals();
-  let html = `<button class="tab overview ${active==='resumo'?'active':''}" data-tab="resumo">
+  const pend = ov.t - ov.d;
+  let html = `<button class="tab overview ${active==='afazer'?'active':''}" data-tab="afazer">
+      <span class="emoji">✅</span>
+      <span class="t-main"><span class="t-name">A fazer</span>
+        <span class="t-bar" style="--p:${ov.pct}"><i></i></span></span>
+      <span class="t-count mono">${pend}</span>
+    </button>
+    <button class="tab overview ${active==='resumo'?'active':''}" data-tab="resumo">
       <span class="emoji">📊</span>
       <span class="t-main"><span class="t-name">Visão geral</span>
         <span class="t-bar" style="--p:${ov.pct}"><i></i></span></span>
@@ -427,6 +438,7 @@ function renderTop(){
 }
 
 function renderContent(){
+  if(active==="afazer"){ renderAfazer(); return; }
   if(active==="resumo"){ renderResumo(); return; }
   const idx = state.abas.findIndex(a=>a.id===active);
   const a = state.abas[idx];
@@ -466,6 +478,42 @@ function renderContent(){
   html += `</ul><button class="add-item" data-action="add">+ adicionar item</button>`;
   $("#content").innerHTML = html;
   requestAnimationFrame(()=>{ const f=$(".prog-inline .track > i"); if(f) f.style.width=s.pct+"%"; });
+}
+
+function renderAfazer(){
+  const ov = totals();
+  const pend = [];
+  state.abas.forEach(a=>a.itens.forEach(it=>{ if(!it.feito) pend.push({aba:a, it}); }));
+
+  let head = `<div class="sec-head">
+    <div class="eyebrow">a fazer — ${pend.length} pendente${pend.length===1?"":"s"}</div>
+    <h2>✅ Tarefas a fazer</h2>
+    <p>Todos os itens ainda não concluídos, reunidos num só lugar. Marque para concluir ou clique em <b>abrir</b> para ir ao estágio.</p>
+  </div>`;
+
+  if(!pend.length){
+    $("#content").innerHTML = head + `<ul class="list"><li class="item" style="justify-items:center">
+      <div class="item-body" style="grid-column:1/-1;text-align:center;padding:14px">
+        <p class="item-text">🎉 Nada pendente!</p>
+        <p class="item-detail">Você concluiu todos os ${ov.t} itens da trilha. Mandou muito bem.</p>
+      </div></li></ul>`;
+    return;
+  }
+
+  let rows = pend.map(({aba,it})=>`
+    <li class="item" data-id="${it.id}">
+      <button class="check" data-action="toggle" aria-pressed="false" aria-label="Marcar como concluído"></button>
+      <div class="item-body">
+        <p class="item-text">${esc(it.texto)}</p>
+        ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
+        <span class="chip">${aba.emoji} ${esc(aba.nome)}</span>
+      </div>
+      <div class="item-actions" style="opacity:1">
+        <button class="mini" data-goto="${aba.id}">abrir →</button>
+      </div>
+    </li>`).join("");
+
+  $("#content").innerHTML = head + `<ul class="list">${rows}</ul>`;
 }
 
 function renderResumo(){

@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trilha de Estudos — IA & Dev</title>
+<style>
+/* ============ Tokens ============ */
+:root{
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-body: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  /* dark (default) */
+  --bg:#0E1518; --bg-2:#0B1113;
+  --panel:#152025; --panel-2:#1A272D;
+  --line:#26383F; --line-soft:#1E2E34;
+  --ink:#EAF1F2; --ink-dim:#B7C6CB; --muted:#7E949C;
+  --accent:#FF8A5B; --accent-ink:#1a0f0a;
+  --done:#57D2B0; --done-ink:#06231d;
+  --gold:#F2C14E;
+  --shadow: 0 10px 30px rgba(0,0,0,.35);
+  --radius:14px;
+}
+:root[data-theme="light"]{
+  --bg:#EDF2F1; --bg-2:#E4ECEA;
+  --panel:#FFFFFF; --panel-2:#F5F8F7;
+  --line:#D6E1DE; --line-soft:#E5EDEB;
+  --ink:#12242A; --ink-dim:#33474E; --muted:#5D7178;
+  --accent:#DF5F31; --accent-ink:#fff;
+  --done:#12977A; --done-ink:#fff;
+  --gold:#B9852A;
+  --shadow: 0 10px 30px rgba(20,40,45,.10);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:
+    radial-gradient(1200px 600px at 100% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 60%),
+    var(--bg);
+  color:var(--ink);
+  font-family:var(--font-body);
+  font-size:15px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit}
+.mono{font-family:var(--font-mono)}
+
+/* ============ Layout ============ */
+.app{display:grid; grid-template-columns:290px 1fr; min-height:100vh}
+
+/* ---- Sidebar ---- */
+.side{
+  background:linear-gradient(180deg, var(--bg-2), var(--bg));
+  border-right:1px solid var(--line-soft);
+  padding:22px 16px; position:sticky; top:0; height:100vh; overflow-y:auto;
+  display:flex; flex-direction:column; gap:6px;
+}
+.brand{padding:4px 8px 14px; border-bottom:1px solid var(--line-soft); margin-bottom:10px}
+.brand .eyebrow{font-family:var(--font-mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--accent)}
+.brand h1{font-family:var(--font-display); font-weight:600; font-size:22px; line-height:1.15; margin:6px 0 0; letter-spacing:-.01em}
+.brand p{margin:6px 0 0; color:var(--muted); font-size:12.5px}
+
+.nav-label{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); padding:12px 8px 4px}
+
+.tab{
+  --p:0;
+  display:grid; grid-template-columns:34px 1fr auto; align-items:center; gap:10px;
+  width:100%; text-align:left; cursor:pointer;
+  background:transparent; border:1px solid transparent; border-radius:12px;
+  padding:9px 10px; color:var(--ink-dim); transition:background .15s, border-color .15s, color .15s;
+}
+.tab:hover{background:var(--panel); color:var(--ink)}
+.tab.active{background:var(--panel); border-color:var(--line); color:var(--ink); box-shadow:var(--shadow)}
+.tab .num{font-family:var(--font-mono); font-size:12px; color:var(--muted)}
+.tab.active .num{color:var(--accent)}
+.tab .emoji{font-size:16px}
+.tab .t-main{display:flex; flex-direction:column; min-width:0}
+.tab .t-name{font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tab .t-bar{height:4px; border-radius:99px; background:var(--line); margin-top:6px; overflow:hidden}
+.tab .t-bar > i{display:block; height:100%; width:calc(var(--p)*1%); background:var(--accent); transition:width .5s cubic-bezier(.2,.7,.2,1)}
+.tab.done-all .t-bar > i{background:var(--done)}
+.tab .t-count{font-family:var(--font-mono); font-size:11px; color:var(--muted)}
+
+.tab.overview{grid-template-columns:34px 1fr auto; margin-bottom:2px}
+.tab.overview .emoji{font-size:17px}
+
+/* ---- Main ---- */
+.main{padding:0; min-width:0; display:flex; flex-direction:column}
+.topbar{
+  position:sticky; top:0; z-index:5;
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  padding:16px 30px; background:color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter:blur(10px); border-bottom:1px solid var(--line-soft);
+}
+.topbar .grow{flex:1}
+.ring{--v:0; width:44px; height:44px; border-radius:50%;
+  background:conic-gradient(var(--accent) calc(var(--v)*1%), var(--line) 0);
+  display:grid; place-items:center; transition:background .5s}
+.ring > span{width:34px;height:34px;border-radius:50%;background:var(--bg);display:grid;place-items:center;
+  font-family:var(--font-mono);font-size:11px;font-weight:700}
+.overall{display:flex; align-items:center; gap:10px}
+.overall .lbl{font-size:12px; color:var(--muted)}
+.overall .lbl b{display:block; color:var(--ink); font-size:13px}
+
+.act{display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+  background:var(--panel); color:var(--ink-dim); border:1px solid var(--line);
+  padding:8px 12px; border-radius:10px; font-size:13px; transition:.15s}
+.act:hover{color:var(--ink); border-color:var(--accent)}
+.act.icon{padding:8px 10px}
+
+.content{padding:26px 30px 60px; max-width:920px; width:100%}
+
+/* ---- Section header ---- */
+.sec-head{margin-bottom:20px}
+.sec-head .eyebrow{font-family:var(--font-mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent)}
+.sec-head h2{font-family:var(--font-display); font-weight:600; font-size:30px; letter-spacing:-.02em; margin:8px 0 6px}
+.sec-head p{margin:0; color:var(--muted); max-width:62ch}
+.sec-head .prog-inline{display:flex;align-items:center;gap:12px;margin-top:14px}
+.sec-head .track{flex:1;max-width:340px;height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+.sec-head .track > i{display:block;height:100%;background:var(--accent);width:0;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+.sec-head.all-done .track > i{background:var(--done)}
+.sec-head .pct{font-family:var(--font-mono);font-size:13px;color:var(--ink-dim)}
+
+/* ---- Items ---- */
+.list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px}
+.item{
+  display:grid; grid-template-columns:26px 1fr auto; align-items:start; gap:14px;
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  padding:15px 16px; transition:border-color .15s, transform .12s, background .15s;
+}
+.item:hover{border-color:color-mix(in srgb, var(--accent) 45%, var(--line))}
+.item.is-done{background:var(--panel-2); border-color:var(--line-soft)}
+
+.check{
+  margin-top:1px; width:24px; height:24px; border-radius:7px; cursor:pointer;
+  border:2px solid var(--muted); background:transparent; color:transparent;
+  display:grid; place-items:center; font-size:14px; transition:.15s; padding:0;
+}
+.check:hover{border-color:var(--accent)}
+.item.is-done .check{background:var(--done); border-color:var(--done); color:var(--done-ink)}
+
+.item-body{min-width:0}
+.item-text{margin:0; font-size:15px; font-weight:600; color:var(--ink)}
+.item.is-done .item-text{text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--done) 70%, transparent); color:var(--ink-dim)}
+.item-detail{margin:4px 0 0; font-size:12.5px; color:var(--muted)}
+.pill-done{display:inline-flex;align-items:center;gap:5px;margin-top:8px;
+  font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:lowercase;
+  color:var(--done);background:color-mix(in srgb,var(--done) 15%, transparent);
+  border:1px solid color-mix(in srgb,var(--done) 40%, transparent);border-radius:99px;padding:3px 9px}
+
+.item-actions{display:flex; gap:4px; opacity:0; transition:.15s}
+.item:hover .item-actions,.item:focus-within .item-actions{opacity:1}
+.mini{background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;
+  border-radius:8px;padding:5px 8px;font-size:12px;transition:.15s}
+.mini:hover{color:var(--ink);background:var(--panel-2);border-color:var(--line)}
+.mini.danger:hover{color:#ff7a7a;border-color:color-mix(in srgb,#ff7a7a 40%,var(--line))}
+
+/* edit form */
+.edit-form{grid-column:1 / -1; display:flex; flex-direction:column; gap:8px}
+.edit-form input{font-family:inherit;font-size:14px;color:var(--ink);background:var(--bg);
+  border:1px solid var(--line);border-radius:9px;padding:9px 11px;width:100%}
+.edit-form input:focus{outline:none;border-color:var(--accent)}
+.edit-form input.detail{font-size:12.5px;color:var(--ink-dim)}
+.edit-form .row{display:flex;gap:8px;justify-content:flex-end}
+.btn{cursor:pointer;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;border:1px solid var(--line);background:var(--panel-2);color:var(--ink-dim)}
+.btn:hover{color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+.add-item{margin-top:12px;width:100%;border:1.5px dashed var(--line);background:transparent;color:var(--muted);
+  border-radius:12px;padding:12px;cursor:pointer;font-size:13px;font-weight:600;transition:.15s}
+.add-item:hover{border-color:var(--accent);color:var(--ink)}
+
+/* ---- Resumo ---- */
+.hero{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px;margin-bottom:22px;
+  display:grid;grid-template-columns:auto 1fr;gap:26px;align-items:center;box-shadow:var(--shadow)}
+.hero .big-ring{--v:0;width:120px;height:120px;border-radius:50%;
+  background:conic-gradient(var(--accent) calc(var(--v)*1%),var(--line) 0);display:grid;place-items:center;transition:background .6s}
+.hero .big-ring > span{width:96px;height:96px;border-radius:50%;background:var(--panel);display:grid;place-items:center;flex-direction:column}
+.hero .big-ring b{font-family:var(--font-mono);font-size:26px;line-height:1}
+.hero .big-ring small{color:var(--muted);font-size:10px;letter-spacing:.15em;text-transform:uppercase;margin-top:3px}
+.hero-txt h3{font-family:var(--font-display);font-weight:600;font-size:22px;margin:0 0 6px}
+.hero-txt p{margin:0;color:var(--muted)}
+.hero-stats{display:flex;gap:22px;margin-top:14px}
+.hero-stats div b{font-family:var(--font-mono);font-size:20px;display:block}
+.hero-stats div span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px}
+.card h4{margin:0 0 14px;font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
+
+.tprog{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line-soft)}
+.tprog:last-child{border-bottom:0}
+.tprog .tp-emoji{font-size:16px;width:22px;text-align:center}
+.tprog .tp-name{flex:1;font-size:13.5px;font-weight:600;cursor:pointer}
+.tprog .tp-name:hover{color:var(--accent)}
+.tprog .tp-bar{width:110px;height:6px;border-radius:99px;background:var(--line);overflow:hidden}
+.tprog .tp-bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .5s}
+.tprog.full .tp-bar > i{background:var(--done)}
+.tprog .tp-num{font-family:var(--font-mono);font-size:11px;color:var(--muted);width:38px;text-align:right}
+
+.pend{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.pend li{display:flex;gap:9px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:13.5px}
+.pend li:last-child{border-bottom:0}
+.pend .p-tag{font-family:var(--font-mono);font-size:10px;color:var(--accent);white-space:nowrap}
+.pend .empty{color:var(--muted);font-style:italic;padding:8px 0}
+
+.cron{width:100%;border-collapse:collapse;margin-top:2px;font-size:13px}
+.cron th,.cron td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-soft)}
+.cron th{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.cron td.wk{font-family:var(--font-mono);color:var(--accent);white-space:nowrap}
+.card.wide{grid-column:1 / -1}
+
+.foot{margin-top:26px;color:var(--muted);font-size:12px;text-align:center}
+.foot code{font-family:var(--font-mono);background:var(--panel);padding:2px 6px;border-radius:6px;border:1px solid var(--line)}
+
+/* focus */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.item:focus-within{outline:none}
+
+/* ---- responsive ---- */
+.menu-btn{display:none}
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  .side{position:fixed;z-index:20;width:280px;left:0;top:0;transform:translateX(-102%);transition:transform .25s;box-shadow:var(--shadow)}
+  .app.nav-open .side{transform:none}
+  .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15}
+  .app.nav-open .scrim{display:block}
+  .menu-btn{display:inline-flex}
+  .content{padding:20px 16px 50px}
+  .topbar{padding:12px 16px}
+  .hero{grid-template-columns:1fr;text-align:center;justify-items:center}
+  .grid-2{grid-template-columns:1fr}
+  .item-actions{opacity:1}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="scrim" data-action="close-nav"></div>
+
+  <!-- Sidebar -->
+  <aside class="side" id="side">
+    <div class="brand">
+      <div class="eyebrow">trilha de estudos</div>
+      <h1>IA &amp; Desenvolvimento</h1>
+      <p>Do fundamento ao produto — no seu ritmo.</p>
+    </div>
+    <nav id="nav"></nav>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="topbar">
+      <button class="act icon menu-btn" data-action="open-nav" aria-label="Abrir menu">☰</button>
+      <div class="overall">
+        <div class="ring" id="topRing"><span id="topRingTxt" class="mono">0%</span></div>
+        <div class="lbl">progresso geral<b id="topCount">0 de 0 concluídos</b></div>
+      </div>
+      <div class="grow"></div>
+      <button class="act" data-action="theme" title="Alternar tema"><span id="themeIcon">☾</span><span id="themeTxt">Escuro</span></button>
+      <button class="act" data-action="export">⤓ Exportar</button>
+      <button class="act" data-action="import">⤒ Importar</button>
+      <button class="act" data-action="restore">↺ Restaurar</button>
+      <input type="file" id="fileIn" accept="application/json,.json" hidden>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<script>
+/* ============================ SEED (conteúdo padrão) ============================ */
+const SEED = {
+  meta:{ titulo:"Trilha de Estudos — IA & Dev", versao:1 },
+  abas:[
+    { id:"fundamentos-ia", nome:"Fundamentos de IA", emoji:"🧠",
+      resumo:"Entender o que a IA generativa é — e o que ela não é.",
+      itens:[
+        {id:"f1", texto:"Diferença entre IA, Machine Learning e LLM", detalhe:"Situar os termos antes de aprofundar.", feito:false},
+        {id:"f2", texto:"O que é token e janela de contexto", detalhe:"Por que o modelo tem limite de texto.", feito:false},
+        {id:"f3", texto:"Treinamento × inferência (noção geral)", detalhe:"Como o modelo aprende vs. como responde.", feito:false},
+        {id:"f4", texto:"Alucinação, cutoff de conhecimento e viés", detalhe:"Sempre verificar fatos críticos.", feito:false},
+        {id:"f5", texto:"RAG: dar documentos ao modelo (noção)", detalhe:"Como ampliar o conhecimento na hora.", feito:false},
+        {id:"f6", texto:"Fine-tuning: saber que existe", detalhe:"Quando ajustar o modelo faz sentido.", feito:false}
+      ]},
+    { id:"usar-claude", nome:"Usar a Claude", emoji:"🤝",
+      resumo:"Tratar a IA como colaborador: contexto, objetivo e formato.",
+      itens:[
+        {id:"c1", texto:"Dar contexto: quem é você, para quê, quem vai ler", detalhe:"O hábito que mais muda o resultado.", feito:false},
+        {id:"c2", texto:"Ser específico no objetivo e no formato", detalhe:"'5 bullets para leigo' > 'resuma isso'.", feito:false},
+        {id:"c3", texto:"Iterar: tratar a 1ª resposta como rascunho", detalhe:"Refinar com 'mais curto', 'mais técnico'.", feito:false},
+        {id:"c4", texto:"Few-shot: dar exemplos do resultado desejado", detalhe:"Mostrar em vez de só descrever.", feito:false},
+        {id:"c5", texto:"Pedir raciocínio passo a passo em problemas difíceis", detalhe:"Melhora precisão em tarefas complexas.", feito:false},
+        {id:"c6", texto:"Anexar arquivos/dados em vez de descrever", detalhe:"Menos ruído, mais precisão.", feito:false},
+        {id:"c7", texto:"Escolher o canal: chat × Claude Code × API", detalhe:"Cada um serve a um tipo de tarefa.", feito:false}
+      ]},
+    { id:"prompt", nome:"Engenharia de Prompt", emoji:"✍️",
+      resumo:"A arte de instruir o modelo para extrair o melhor resultado.",
+      itens:[
+        {id:"p1", texto:"Estrutura: Papel / Tarefa / Contexto / Formato / Exemplo", detalhe:"O esqueleto de um bom prompt.", feito:false},
+        {id:"p2", texto:"Zero-shot × Few-shot", detalhe:"Sem exemplos vs. com exemplos.", feito:false},
+        {id:"p3", texto:"Chain-of-thought ('pense passo a passo')", detalhe:"Raciocínio explícito em etapas.", feito:false},
+        {id:"p4", texto:"Delimitadores para separar instrução de conteúdo", detalhe:"Usar ``` ou tags.", feito:false},
+        {id:"p5", texto:"Decompor tarefa grande em etapas", detalhe:"Quebrar problemas complexos.", feito:false},
+        {id:"p6", texto:"Prompt de sistema × de usuário", detalhe:"Relevante ao usar a API.", feito:false},
+        {id:"p7", texto:"Ler o guia oficial da Anthropic", detalhe:"docs.anthropic.com → Prompt Engineering.", feito:false}
+      ]},
+    { id:"lovable", nome:"Lovable", emoji:"💜",
+      resumo:"No-code para gerar apps web completos a partir de descrições.",
+      itens:[
+        {id:"l1", texto:"Descrever features com clareza", detalhe:"Aqui a engenharia de prompt volta.", feito:false},
+        {id:"l2", texto:"Integração com Supabase (banco/auth)", detalhe:"Lovable usa bastante.", feito:false},
+        {id:"l3", texto:"Conectar APIs externas", detalhe:"Deixar o app 'vivo'.", feito:false},
+        {id:"l4", texto:"Exportar/versionar o código no GitHub", detalhe:"Por isso Git importa.", feito:false},
+        {id:"l5", texto:"Limites do no-code: quando editar código de verdade", detalhe:"Saber a hora de sair da ferramenta.", feito:false},
+        {id:"l6", texto:"Construir 1 MVP de prática (ex: CRUD de tarefas)", detalhe:"Projeto pequeno real.", feito:false}
+      ]},
+    { id:"git", nome:"Git + GitFlow", emoji:"🌿",
+      resumo:"Controle de versão e uma convenção de branches para times.",
+      itens:[
+        {id:"g1", texto:"Comandos essenciais: init, add, commit, branch, checkout, merge", detalhe:"A base do dia a dia.", feito:false},
+        {id:"g2", texto:"push / pull com o GitHub", detalhe:"Enviar e receber código.", feito:false},
+        {id:"g3", texto:"GitFlow: main, develop, feature/*, release/*, hotfix/*", detalhe:"Organização de branches.", feito:false},
+        {id:"g4", texto:"Simular um hotfix num repo de teste", detalhe:"Praticar o fluxo completo.", feito:false},
+        {id:"g5", texto:"Ler o Pro Git book", detalhe:"git-scm.com/book/pt-br (gratuito).", feito:false}
+      ]},
+    { id:"worktree", nome:"Git Worktree", emoji:"🌳",
+      resumo:"Várias branches abertas em pastas diferentes ao mesmo tempo.",
+      itens:[
+        {id:"w1", texto:"O que é: várias branches em pastas simultâneas", detalhe:"Sem ficar dando checkout/stash.", feito:false},
+        {id:"w2", texto:"Comandos: worktree add / list / remove", detalhe:"Criar, listar e remover.", feito:false},
+        {id:"w3", texto:"Trabalhar numa feature enquanto revisa outra", detalhe:"O ganho prático principal.", feito:false},
+        {id:"w4", texto:"Uso com Claude Code (isolamento de agentes)", detalhe:"Agentes em worktrees separadas.", feito:false}
+      ]},
+    { id:"cc-ninja", nome:"Claude Code Ninja", emoji:"🥷",
+      resumo:"Dominar os recursos avançados de produtividade do Claude Code.",
+      itens:[
+        {id:"n1", texto:"Slash commands (/init, /code-review, /plugin)", detalhe:"Atalhos poderosos.", feito:false},
+        {id:"n2", texto:"CLAUDE.md: memória do projeto", detalhe:"Contexto automático em cada sessão.", feito:false},
+        {id:"n3", texto:"Subagentes e paralelismo", detalhe:"Várias tarefas ao mesmo tempo.", feito:false},
+        {id:"n4", texto:"Worktrees para isolamento", detalhe:"Liga com o tema anterior.", feito:false},
+        {id:"n5", texto:"Hooks: automações em eventos", detalhe:"Ex: rodar testes após editar.", feito:false},
+        {id:"n6", texto:"MCP: conectar ferramentas externas", detalhe:"Browser, Drive, bancos, etc.", feito:false},
+        {id:"n7", texto:"Plugins e skills", detalhe:"Pacotes de instruções reutilizáveis.", feito:false}
+      ]},
+    { id:"apis", nome:"APIs + API do Meta", emoji:"🔌",
+      resumo:"Como programas conversam — e como falar com Facebook/WhatsApp.",
+      itens:[
+        {id:"a1", texto:"HTTP: GET/POST/PUT/DELETE, JSON e status codes", detalhe:"O vocabulário básico da web.", feito:false},
+        {id:"a2", texto:"Autenticação: API key, token e OAuth", detalhe:"Como provar quem você é.", feito:false},
+        {id:"a3", texto:"Testar com Postman ou Insomnia", detalhe:"Ferramenta para experimentar.", feito:false},
+        {id:"a4", texto:"Chamar 1 API pública simples (ex: clima)", detalhe:"Primeiro contato prático.", feito:false},
+        {id:"a5", texto:"Meta: criar app em developers.facebook.com", detalhe:"Ponto de partida do ecossistema.", feito:false},
+        {id:"a6", texto:"Graph API (Facebook/Instagram)", detalhe:"A base de tudo no Meta.", feito:false},
+        {id:"a7", texto:"WhatsApp Cloud API: enviar 1 mensagem", detalhe:"O 'hello world' da automação.", feito:false},
+        {id:"a8", texto:"Webhooks: receber eventos", detalhe:"O Meta te avisa quando algo acontece.", feito:false}
+      ]}
+  ]
+};
+
+/* Cronograma (estático) */
+const CRONO = [
+  ["Sem 1","Fundamentos de IA + começar a usar a Claude"],
+  ["Sem 2","Engenharia de Prompt (prática diária)"],
+  ["Sem 3","Git puro (base técnica mais importante)"],
+  ["Sem 4","GitFlow + Worktree"],
+  ["Sem 5","Claude Code ninja (CLAUDE.md, hooks, MCP)"],
+  ["Sem 6","Lovable — construir 1 MVP"],
+  ["Sem 7","APIs em geral + Postman"],
+  ["Sem 8","API do Meta (app, token, WhatsApp)"],
+  ["Sem 9","Projeto integrador (junta tudo)"],
+  ["Sem 10","Revisão + aprofundar o que ficou fraco"]
+];
+
+/* ============================ Estado ============================ */
+const STORE_KEY = "estudos-ia-data-v1";
+const THEME_KEY = "estudos-ia-theme";
+let state, active = "resumo", editingId = null;
+
+const clone = o => JSON.parse(JSON.stringify(o));
+const $ = s => document.querySelector(s);
+
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw){ const d = JSON.parse(raw); if(d && Array.isArray(d.abas)) return d; }
+  }catch(e){}
+  return clone(SEED);
+}
+function persist(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){} }
+
+function stats(aba){ const t=aba.itens.length, d=aba.itens.filter(i=>i.feito).length; return {t,d,pct:t? Math.round(d/t*100):0}; }
+function totals(){ let t=0,d=0; state.abas.forEach(a=>{t+=a.itens.length; d+=a.itens.filter(i=>i.feito).length;}); return {t,d,pct:t?Math.round(d/t*100):0}; }
+const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid = () => "x"+Math.abs(Date.now()+Math.floor(performance.now()*1000)).toString(36);
+
+/* ============================ Render ============================ */
+function renderNav(){
+  const nav = $("#nav");
+  const ov = totals();
+  let html = `<button class="tab overview ${active==='resumo'?'active':''}" data-tab="resumo">
+      <span class="emoji">📊</span>
+      <span class="t-main"><span class="t-name">Visão geral</span>
+        <span class="t-bar" style="--p:${ov.pct}"><i></i></span></span>
+      <span class="t-count">${ov.pct}%</span>
+    </button>
+    <div class="nav-label">estágios</div>`;
+  state.abas.forEach((a,idx)=>{
+    const s = stats(a);
+    html += `<button class="tab ${active===a.id?'active':''} ${s.t&&s.d===s.t?'done-all':''}" data-tab="${a.id}" style="--p:${s.pct}">
+      <span class="num mono">${String(idx+1).padStart(2,"0")}</span>
+      <span class="t-main"><span class="t-name">${a.emoji} ${esc(a.nome)}</span>
+        <span class="t-bar"><i></i></span></span>
+      <span class="t-count mono">${s.d}/${s.t}</span>
+    </button>`;
+  });
+  nav.innerHTML = html;
+}
+
+function renderTop(){
+  const ov = totals();
+  $("#topRing").style.setProperty("--v", ov.pct);
+  $("#topRingTxt").textContent = ov.pct+"%";
+  $("#topCount").textContent = `${ov.d} de ${ov.t} concluídos`;
+}
+
+function renderContent(){
+  if(active==="resumo"){ renderResumo(); return; }
+  const idx = state.abas.findIndex(a=>a.id===active);
+  const a = state.abas[idx];
+  const s = stats(a);
+  let html = `<div class="sec-head ${s.t&&s.d===s.t?'all-done':''}">
+    <div class="eyebrow">estágio ${String(idx+1).padStart(2,"0")} — ${s.d}/${s.t} concluídos</div>
+    <h2>${a.emoji} ${esc(a.nome)}</h2>
+    <p>${esc(a.resumo||"")}</p>
+    <div class="prog-inline"><span class="track"><i style="width:${s.pct}%"></i></span><span class="pct">${s.pct}%</span></div>
+  </div><ul class="list">`;
+
+  a.itens.forEach(it=>{
+    if(it.id===editingId){
+      html += `<li class="item editing" data-id="${it.id}">
+        <form class="edit-form" data-form="${it.id}">
+          <input name="texto" value="${esc(it.texto)}" placeholder="O que estudar…" autocomplete="off" required>
+          <input name="detalhe" class="detail" value="${esc(it.detalhe||"")}" placeholder="Detalhe / dica (opcional)" autocomplete="off">
+          <div class="row">
+            <button type="button" class="btn" data-action="cancel">Cancelar</button>
+            <button type="submit" class="btn primary">Salvar</button>
+          </div>
+        </form></li>`;
+    } else {
+      html += `<li class="item ${it.feito?'is-done':''}" data-id="${it.id}">
+        <button class="check" data-action="toggle" aria-pressed="${it.feito}" aria-label="Marcar como concluído">${it.feito?"✓":""}</button>
+        <div class="item-body">
+          <p class="item-text">${esc(it.texto)}</p>
+          ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
+          ${it.feito?`<span class="pill-done">✓ pronto</span>`:""}
+        </div>
+        <div class="item-actions">
+          <button class="mini" data-action="edit">editar</button>
+          <button class="mini danger" data-action="delete">excluir</button>
+        </div></li>`;
+    }
+  });
+  html += `</ul><button class="add-item" data-action="add">+ adicionar item</button>`;
+  $("#content").innerHTML = html;
+  requestAnimationFrame(()=>{ const f=$(".prog-inline .track > i"); if(f) f.style.width=s.pct+"%"; });
+}
+
+function renderResumo(){
+  const ov = totals();
+  const pend = [];
+  state.abas.forEach(a=>a.itens.forEach(i=>{ if(!i.feito) pend.push({tag:a.emoji+" "+a.nome, texto:i.texto}); }));
+
+  let bars = "";
+  state.abas.forEach((a,idx)=>{
+    const s = stats(a);
+    bars += `<div class="tprog ${s.t&&s.d===s.t?'full':''}">
+      <span class="tp-emoji">${a.emoji}</span>
+      <span class="tp-name" data-goto="${a.id}">${esc(a.nome)}</span>
+      <span class="tp-bar"><i style="width:${s.pct}%"></i></span>
+      <span class="tp-num mono">${s.d}/${s.t}</span>
+    </div>`;
+  });
+
+  let pendHtml = pend.length
+    ? `<ul class="pend">${pend.slice(0,7).map(p=>`<li><span class="p-tag">${esc(p.tag)}</span><span>${esc(p.texto)}</span></li>`).join("")}
+        ${pend.length>7?`<li><span class="p-tag">+${pend.length-7}</span><span>itens pendentes…</span></li>`:""}</ul>`
+    : `<p class="empty" style="color:var(--muted)">🎉 Tudo concluído. Parabéns!</p>`;
+
+  let crono = CRONO.map(r=>`<tr><td class="wk">${r[0]}</td><td>${esc(r[1])}</td></tr>`).join("");
+
+  $("#content").innerHTML = `
+    <div class="sec-head">
+      <div class="eyebrow">visão geral</div>
+      <h2>Seu progresso</h2>
+      <p>Um painel de bordo da sua trilha. Marque itens como <b>pronto</b> nos estágios e acompanhe tudo aqui.</p>
+    </div>
+
+    <div class="hero">
+      <div class="big-ring" style="--v:${ov.pct}"><span><b class="mono">${ov.pct}%</b><small>concluído</small></span></div>
+      <div class="hero-txt">
+        <h3>${ov.pct===100?"Trilha concluída — mandou bem!":ov.pct===0?"Tudo pronto para começar":"Você está a caminho"}</h3>
+        <p>${ov.d} de ${ov.t} itens concluídos em ${state.abas.length} estágios.</p>
+        <div class="hero-stats">
+          <div><b class="mono" style="color:var(--done)">${ov.d}</b><span>feitos</span></div>
+          <div><b class="mono" style="color:var(--accent)">${ov.t-ov.d}</b><span>pendentes</span></div>
+          <div><b class="mono">${state.abas.length}</b><span>estágios</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card"><h4>Progresso por estágio</h4>${bars}</div>
+      <div class="card"><h4>Próximos passos</h4>${pendHtml}</div>
+      <div class="card wide"><h4>Cronograma — ~10 semanas (≈1h/dia)</h4>
+        <table class="cron"><thead><tr><th>Período</th><th>Foco</th></tr></thead><tbody>${crono}</tbody></table>
+      </div>
+    </div>
+    <p class="foot">Edits salvos automaticamente neste navegador. Use <code>Exportar</code> para gerar o <code>data.json</code> e versioná-lo no git.</p>`;
+
+  requestAnimationFrame(()=>{
+    $(".big-ring")?.style.setProperty("--v", ov.pct);
+    document.querySelectorAll(".tprog .tp-bar > i").forEach((el,idx)=>{ el.style.width = stats(state.abas[idx]).pct+"%"; });
+  });
+}
+
+function renderAll(){ renderNav(); renderTop(); renderContent(); }
+
+/* ============================ Ações ============================ */
+function setActive(id){ active=id; editingId=null; document.getElementById("app").classList.remove("nav-open"); renderAll(); window.scrollTo({top:0}); }
+
+function findItem(id){
+  for(const a of state.abas){ const it=a.itens.find(i=>i.id===id); if(it) return {aba:a, it}; }
+  return null;
+}
+
+document.addEventListener("click", e=>{
+  const tabBtn = e.target.closest("[data-tab]");
+  if(tabBtn){ setActive(tabBtn.dataset.tab); return; }
+
+  const goto = e.target.closest("[data-goto]");
+  if(goto){ setActive(goto.dataset.goto); return; }
+
+  const act = e.target.closest("[data-action]");
+  if(!act) return;
+  const action = act.dataset.action;
+  const li = act.closest(".item");
+  const id = li?.dataset.id;
+
+  switch(action){
+    case "open-nav": document.getElementById("app").classList.add("nav-open"); break;
+    case "close-nav": document.getElementById("app").classList.remove("nav-open"); break;
+    case "theme": toggleTheme(); break;
+    case "export": exportJSON(); break;
+    case "import": $("#fileIn").click(); break;
+    case "restore":
+      if(confirm("Restaurar o conteúdo padrão? Suas edições e marcações serão apagadas.")){
+        state = clone(SEED); editingId=null; persist(); renderAll();
+      } break;
+    case "toggle":{ const f=findItem(id); if(f){ f.it.feito=!f.it.feito; persist(); renderAll(); } break; }
+    case "edit": editingId=id; renderContent(); focusEdit(); break;
+    case "cancel":{ // if new empty item, drop it
+      const f=findItem(editingId); if(f && !f.it.texto){ f.aba.itens=f.aba.itens.filter(i=>i.id!==editingId); }
+      editingId=null; renderContent(); break; }
+    case "delete":{ const f=findItem(id); if(f && confirm("Excluir este item?")){ f.aba.itens=f.aba.itens.filter(i=>i.id!==id); persist(); renderAll(); } break; }
+    case "add":{
+      const aba = state.abas.find(a=>a.id===active); if(!aba) break;
+      const nid = uid(); aba.itens.push({id:nid, texto:"", detalhe:"", feito:false});
+      editingId=nid; renderContent(); focusEdit(); break; }
+  }
+});
+
+document.addEventListener("submit", e=>{
+  const form = e.target.closest("[data-form]"); if(!form) return;
+  e.preventDefault();
+  const id = form.dataset.form; const f = findItem(id);
+  if(f){
+    f.it.texto = form.texto.value.trim() || "(sem título)";
+    f.it.detalhe = form.detalhe.value.trim();
+  }
+  editingId=null; persist(); renderAll();
+});
+
+function focusEdit(){ requestAnimationFrame(()=>{ const i=document.querySelector(".edit-form input[name='texto']"); if(i){ i.focus(); i.select(); } }); }
+
+/* Export / Import */
+function exportJSON(){
+  const blob = new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href=url; a.download="data.json"; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 500);
+}
+$("#fileIn").addEventListener("change", e=>{
+  const file = e.target.files[0]; if(!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try{ const d = JSON.parse(r.result);
+      if(!d || !Array.isArray(d.abas)) throw 0;
+      state = d; editingId=null; persist(); renderAll();
+    }catch(err){ alert("Arquivo inválido. Selecione um data.json exportado por este app."); }
+    e.target.value="";
+  };
+  r.readAsText(file);
+});
+
+/* Theme */
+function applyTheme(t){
+  document.documentElement.setAttribute("data-theme", t);
+  $("#themeIcon").textContent = t==="dark" ? "☾" : "☀";
+  $("#themeTxt").textContent = t==="dark" ? "Escuro" : "Claro";
+  renderTop(); // ring bg uses --bg
+}
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute("data-theme");
+  const next = cur==="dark" ? "light" : "dark";
+  try{ localStorage.setItem(THEME_KEY, next); }catch(e){}
+  applyTheme(next);
+}
+
+/* ============================ Init ============================ */
+state = load();
+applyTheme((()=>{ try{ return localStorage.getItem(THEME_KEY)||"dark"; }catch(e){ return "dark"; } })());
+renderAll();
+</script>
+</body>
+</html>

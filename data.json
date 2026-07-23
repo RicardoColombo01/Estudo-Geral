@@ -1,0 +1,119 @@
+{
+  "meta": { "titulo": "Trilha de Estudos — IA & Dev", "versao": 1 },
+  "abas": [
+    {
+      "id": "fundamentos-ia",
+      "nome": "Fundamentos de IA",
+      "emoji": "🧠",
+      "resumo": "Entender o que a IA generativa é — e o que ela não é.",
+      "itens": [
+        { "id": "f1", "texto": "Diferença entre IA, Machine Learning e LLM", "detalhe": "Situar os termos antes de aprofundar.", "feito": false },
+        { "id": "f2", "texto": "O que é token e janela de contexto", "detalhe": "Por que o modelo tem limite de texto.", "feito": false },
+        { "id": "f3", "texto": "Treinamento × inferência (noção geral)", "detalhe": "Como o modelo aprende vs. como responde.", "feito": false },
+        { "id": "f4", "texto": "Alucinação, cutoff de conhecimento e viés", "detalhe": "Sempre verificar fatos críticos.", "feito": false },
+        { "id": "f5", "texto": "RAG: dar documentos ao modelo (noção)", "detalhe": "Como ampliar o conhecimento na hora.", "feito": false },
+        { "id": "f6", "texto": "Fine-tuning: saber que existe", "detalhe": "Quando ajustar o modelo faz sentido.", "feito": false }
+      ]
+    },
+    {
+      "id": "usar-claude",
+      "nome": "Usar a Claude",
+      "emoji": "🤝",
+      "resumo": "Tratar a IA como colaborador: contexto, objetivo e formato.",
+      "itens": [
+        { "id": "c1", "texto": "Dar contexto: quem é você, para quê, quem vai ler", "detalhe": "O hábito que mais muda o resultado.", "feito": false },
+        { "id": "c2", "texto": "Ser específico no objetivo e no formato", "detalhe": "'5 bullets para leigo' > 'resuma isso'.", "feito": false },
+        { "id": "c3", "texto": "Iterar: tratar a 1ª resposta como rascunho", "detalhe": "Refinar com 'mais curto', 'mais técnico'.", "feito": false },
+        { "id": "c4", "texto": "Few-shot: dar exemplos do resultado desejado", "detalhe": "Mostrar em vez de só descrever.", "feito": false },
+        { "id": "c5", "texto": "Pedir raciocínio passo a passo em problemas difíceis", "detalhe": "Melhora precisão em tarefas complexas.", "feito": false },
+        { "id": "c6", "texto": "Anexar arquivos/dados em vez de descrever", "detalhe": "Menos ruído, mais precisão.", "feito": false },
+        { "id": "c7", "texto": "Escolher o canal: chat × Claude Code × API", "detalhe": "Cada um serve a um tipo de tarefa.", "feito": false }
+      ]
+    },
+    {
+      "id": "prompt",
+      "nome": "Engenharia de Prompt",
+      "emoji": "✍️",
+      "resumo": "A arte de instruir o modelo para extrair o melhor resultado.",
+      "itens": [
+        { "id": "p1", "texto": "Estrutura: Papel / Tarefa / Contexto / Formato / Exemplo", "detalhe": "O esqueleto de um bom prompt.", "feito": false },
+        { "id": "p2", "texto": "Zero-shot × Few-shot", "detalhe": "Sem exemplos vs. com exemplos.", "feito": false },
+        { "id": "p3", "texto": "Chain-of-thought ('pense passo a passo')", "detalhe": "Raciocínio explícito em etapas.", "feito": false },
+        { "id": "p4", "texto": "Delimitadores para separar instrução de conteúdo", "detalhe": "Usar ``` ou tags.", "feito": false },
+        { "id": "p5", "texto": "Decompor tarefa grande em etapas", "detalhe": "Quebrar problemas complexos.", "feito": false },
+        { "id": "p6", "texto": "Prompt de sistema × de usuário", "detalhe": "Relevante ao usar a API.", "feito": false },
+        { "id": "p7", "texto": "Ler o guia oficial da Anthropic", "detalhe": "docs.anthropic.com → Prompt Engineering.", "feito": false }
+      ]
+    },
+    {
+      "id": "lovable",
+      "nome": "Lovable",
+      "emoji": "💜",
+      "resumo": "No-code para gerar apps web completos a partir de descrições.",
+      "itens": [
+        { "id": "l1", "texto": "Descrever features com clareza", "detalhe": "Aqui a engenharia de prompt volta.", "feito": false },
+        { "id": "l2", "texto": "Integração com Supabase (banco/auth)", "detalhe": "Lovable usa bastante.", "feito": false },
+        { "id": "l3", "texto": "Conectar APIs externas", "detalhe": "Deixar o app 'vivo'.", "feito": false },
+        { "id": "l4", "texto": "Exportar/versionar o código no GitHub", "detalhe": "Por isso Git importa.", "feito": false },
+        { "id": "l5", "texto": "Limites do no-code: quando editar código de verdade", "detalhe": "Saber a hora de sair da ferramenta.", "feito": false },
+        { "id": "l6", "texto": "Construir 1 MVP de prática (ex: CRUD de tarefas)", "detalhe": "Projeto pequeno real.", "feito": false }
+      ]
+    },
+    {
+      "id": "git",
+      "nome": "Git + GitFlow",
+      "emoji": "🌿",
+      "resumo": "Controle de versão e uma convenção de branches para times.",
+      "itens": [
+        { "id": "g1", "texto": "Comandos essenciais: init, add, commit, branch, checkout, merge", "detalhe": "A base do dia a dia.", "feito": false },
+        { "id": "g2", "texto": "push / pull com o GitHub", "detalhe": "Enviar e receber código.", "feito": false },
+        { "id": "g3", "texto": "GitFlow: main, develop, feature/*, release/*, hotfix/*", "detalhe": "Organização de branches.", "feito": false },
+        { "id": "g4", "texto": "Simular um hotfix num repo de teste", "detalhe": "Praticar o fluxo completo.", "feito": false },
+        { "id": "g5", "texto": "Ler o Pro Git book", "detalhe": "git-scm.com/book/pt-br (gratuito).", "feito": false }
+      ]
+    },
+    {
+      "id": "worktree",
+      "nome": "Git Worktree",
+      "emoji": "🌳",
+      "resumo": "Várias branches abertas em pastas diferentes ao mesmo tempo.",
+      "itens": [
+        { "id": "w1", "texto": "O que é: várias branches em pastas simultâneas", "detalhe": "Sem ficar dando checkout/stash.", "feito": false },
+        { "id": "w2", "texto": "Comandos: worktree add / list / remove", "detalhe": "Criar, listar e remover.", "feito": false },
+        { "id": "w3", "texto": "Trabalhar numa feature enquanto revisa outra", "detalhe": "O ganho prático principal.", "feito": false },
+        { "id": "w4", "texto": "Uso com Claude Code (isolamento de agentes)", "detalhe": "Agentes em worktrees separadas.", "feito": false }
+      ]
+    },
+    {
+      "id": "cc-ninja",
+      "nome": "Claude Code Ninja",
+      "emoji": "🥷",
+      "resumo": "Dominar os recursos avançados de produtividade do Claude Code.",
+      "itens": [
+        { "id": "n1", "texto": "Slash commands (/init, /code-review, /plugin)", "detalhe": "Atalhos poderosos.", "feito": false },
+        { "id": "n2", "texto": "CLAUDE.md: memória do projeto", "detalhe": "Contexto automático em cada sessão.", "feito": false },
+        { "id": "n3", "texto": "Subagentes e paralelismo", "detalhe": "Várias tarefas ao mesmo tempo.", "feito": false },
+        { "id": "n4", "texto": "Worktrees para isolamento", "detalhe": "Liga com o tema anterior.", "feito": false },
+        { "id": "n5", "texto": "Hooks: automações em eventos", "detalhe": "Ex: rodar testes após editar.", "feito": false },
+        { "id": "n6", "texto": "MCP: conectar ferramentas externas", "detalhe": "Browser, Drive, bancos, etc.", "feito": false },
+        { "id": "n7", "texto": "Plugins e skills", "detalhe": "Pacotes de instruções reutilizáveis.", "feito": false }
+      ]
+    },
+    {
+      "id": "apis",
+      "nome": "APIs + API do Meta",
+      "emoji": "🔌",
+      "resumo": "Como programas conversam — e como falar com Facebook/WhatsApp.",
+      "itens": [
+        { "id": "a1", "texto": "HTTP: GET/POST/PUT/DELETE, JSON e status codes", "detalhe": "O vocabulário básico da web.", "feito": false },
+        { "id": "a2", "texto": "Autenticação: API key, token e OAuth", "detalhe": "Como provar quem você é.", "feito": false },
+        { "id": "a3", "texto": "Testar com Postman ou Insomnia", "detalhe": "Ferramenta para experimentar.", "feito": false },
+        { "id": "a4", "texto": "Chamar 1 API pública simples (ex: clima)", "detalhe": "Primeiro contato prático.", "feito": false },
+        { "id": "a5", "texto": "Meta: criar app em developers.facebook.com", "detalhe": "Ponto de partida do ecossistema.", "feito": false },
+        { "id": "a6", "texto": "Graph API (Facebook/Instagram)", "detalhe": "A base de tudo no Meta.", "feito": false },
+        { "id": "a7", "texto": "WhatsApp Cloud API: enviar 1 mensagem", "detalhe": "O 'hello world' da automação.", "feito": false },
+        { "id": "a8", "texto": "Webhooks: receber eventos", "detalhe": "O Meta te avisa quando algo acontece.", "feito": false }
+      ]
+    }
+  ]
+}

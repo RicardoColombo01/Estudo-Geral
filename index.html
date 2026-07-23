@@ -11,7 +11,6 @@
   --font-body: "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace;
 
-  /* dark (default) */
   --bg:#0E1518; --bg-2:#0B1113;
   --panel:#152025; --panel-2:#1A272D;
   --line:#26383F; --line-soft:#1E2E34;
@@ -34,248 +33,175 @@
 }
 
 *{box-sizing:border-box}
-html,body{margin:0;height:100%}
+html,body{margin:0; overflow-x:hidden}
 body{
+  min-height:100vh;
   background:
-    radial-gradient(1200px 600px at 100% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 60%),
+    radial-gradient(1100px 520px at 50% -8%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 62%),
     var(--bg);
   color:var(--ink);
-  font-family:var(--font-body);
-  font-size:15px; line-height:1.5;
+  font-family:var(--font-body); font-size:15px; line-height:1.5;
   -webkit-font-smoothing:antialiased;
 }
 button{font-family:inherit}
 .mono{font-family:var(--font-mono)}
 
-/* ============ Layout ============ */
-.app{display:grid; grid-template-columns:290px 1fr; min-height:100vh}
+/* ============ Container central ============ */
+.wrap{max-width:860px; margin:0 auto; padding:22px 22px 80px; width:100%}
 
-/* ---- Sidebar ---- */
-.side{
-  background:linear-gradient(180deg, var(--bg-2), var(--bg));
-  border-right:1px solid var(--line-soft);
-  padding:22px 16px; position:sticky; top:0; height:100vh; overflow-y:auto;
-  display:flex; flex-direction:column; gap:6px;
-}
-.brand{padding:4px 8px 14px; border-bottom:1px solid var(--line-soft); margin-bottom:10px}
-.brand .eyebrow{font-family:var(--font-mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--accent)}
-.brand h1{font-family:var(--font-display); font-weight:600; font-size:22px; line-height:1.15; margin:6px 0 0; letter-spacing:-.01em}
-.brand p{margin:6px 0 0; color:var(--muted); font-size:12.5px}
-
-.nav-label{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); padding:12px 8px 4px}
-
-.tab{
-  --p:0;
-  display:grid; grid-template-columns:34px 1fr auto; align-items:center; gap:10px;
-  width:100%; text-align:left; cursor:pointer;
-  background:transparent; border:1px solid transparent; border-radius:12px;
-  padding:9px 10px; color:var(--ink-dim); transition:background .15s, border-color .15s, color .15s;
-}
-.tab:hover{background:var(--panel); color:var(--ink)}
-.tab.active{background:var(--panel); border-color:var(--line); color:var(--ink); box-shadow:var(--shadow)}
-.tab .num{font-family:var(--font-mono); font-size:12px; color:var(--muted)}
-.tab.active .num{color:var(--accent)}
-.tab .emoji{font-size:16px}
-.tab .t-main{display:flex; flex-direction:column; min-width:0}
-.tab .t-name{font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.tab .t-bar{height:4px; border-radius:99px; background:var(--line); margin-top:6px; overflow:hidden}
-.tab .t-bar > i{display:block; height:100%; width:calc(var(--p)*1%); background:var(--accent); transition:width .5s cubic-bezier(.2,.7,.2,1)}
-.tab.done-all .t-bar > i{background:var(--done)}
-.tab .t-count{font-family:var(--font-mono); font-size:11px; color:var(--muted)}
-
-.tab.overview{grid-template-columns:34px 1fr auto; margin-bottom:2px}
-.tab.overview .emoji{font-size:17px}
-
-/* ---- Main ---- */
-.main{padding:0; min-width:0; display:flex; flex-direction:column; overflow-x:hidden}
-.topbar{
-  position:sticky; top:0; z-index:5;
-  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
-  padding:16px 30px; background:color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter:blur(10px); border-bottom:1px solid var(--line-soft);
-}
-.topbar .grow{flex:1}
-.ring{--v:0; width:44px; height:44px; border-radius:50%;
-  background:conic-gradient(var(--accent) calc(var(--v)*1%), var(--line) 0);
-  display:grid; place-items:center; transition:background .5s}
-.ring > span{width:34px;height:34px;border-radius:50%;background:var(--bg);display:grid;place-items:center;
-  font-family:var(--font-mono);font-size:11px;font-weight:700}
-.overall{display:flex; align-items:center; gap:10px}
-.overall .lbl{font-size:12px; color:var(--muted)}
-.overall .lbl b{display:block; color:var(--ink); font-size:13px}
-
-.act{display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+/* top bar (todas as telas) */
+.bar{display:flex; align-items:center; gap:12px; margin-bottom:22px}
+.bar .spacer{flex:1}
+.brandmini{font-family:var(--font-mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted)}
+.ghost{display:inline-flex; align-items:center; gap:7px; cursor:pointer;
   background:var(--panel); color:var(--ink-dim); border:1px solid var(--line);
-  padding:8px 12px; border-radius:10px; font-size:13px; transition:.15s}
-.act:hover{color:var(--ink); border-color:var(--accent)}
-.act.icon{padding:8px 10px}
+  padding:8px 13px; border-radius:10px; font-size:13px; transition:.15s}
+.ghost:hover{color:var(--ink); border-color:var(--accent)}
+.ghost.back{font-weight:600; color:var(--ink)}
 
-.content{padding:26px 30px 60px; max-width:920px; width:100%; margin:0 auto}
+/* ============ Home ============ */
+.home-head{text-align:center; margin:14px 0 26px}
+.home-head .eyebrow{font-family:var(--font-mono); font-size:11.5px; letter-spacing:.24em; text-transform:uppercase; color:var(--accent)}
+.home-head h1{font-family:var(--font-display); font-weight:600; font-size:38px; line-height:1.08; letter-spacing:-.02em; margin:12px 0 8px}
+.home-head p{margin:0 auto; color:var(--muted); max-width:52ch}
 
-/* ---- Section header ---- */
+.overall-card{display:flex; align-items:center; gap:20px; justify-content:center;
+  background:var(--panel); border:1px solid var(--line); border-radius:18px;
+  padding:20px 24px; box-shadow:var(--shadow); margin-bottom:26px; flex-wrap:wrap}
+.big-ring{--v:0; width:90px; height:90px; border-radius:50%; flex:none;
+  background:conic-gradient(var(--accent) calc(var(--v)*1%), var(--line) 0); display:grid; place-items:center; transition:background .6s}
+.big-ring > span{width:70px; height:70px; border-radius:50%; background:var(--panel); display:flex; flex-direction:column; align-items:center; justify-content:center}
+.big-ring b{font-family:var(--font-mono); font-size:20px; line-height:1}
+.big-ring small{color:var(--muted); font-size:9px; letter-spacing:.14em; text-transform:uppercase; margin-top:2px}
+.overall-txt{min-width:180px}
+.overall-txt h3{margin:0 0 4px; font-family:var(--font-display); font-weight:600; font-size:18px}
+.overall-txt p{margin:0 0 10px; color:var(--muted); font-size:13px}
+.overall-txt .track{height:8px; border-radius:99px; background:var(--line); overflow:hidden; max-width:320px}
+.overall-txt .track > i{display:block; height:100%; background:var(--accent); transition:width .6s cubic-bezier(.2,.7,.2,1)}
+
+.section-label{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); margin:26px 4px 10px}
+.cards{display:grid; grid-template-columns:repeat(auto-fill, minmax(232px,1fr)); gap:12px}
+.card{display:flex; flex-direction:column; text-align:left; cursor:pointer; gap:0;
+  background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px 16px 15px;
+  transition:transform .14s, border-color .14s, background .14s; min-height:96px}
+.card:hover{transform:translateY(-2px); border-color:color-mix(in srgb, var(--accent) 55%, var(--line))}
+.card.feature{background:linear-gradient(160deg, color-mix(in srgb, var(--accent) 12%, var(--panel)), var(--panel))}
+.card.done-all{border-color:color-mix(in srgb, var(--done) 45%, var(--line))}
+.card .c-top{display:flex; align-items:center; gap:9px; margin-bottom:auto}
+.card .c-num{font-family:var(--font-mono); font-size:12px; color:var(--muted)}
+.card.done-all .c-num{color:var(--done)}
+.card .c-emoji{font-size:20px}
+.card .c-name{font-weight:600; font-size:15px; margin:10px 0 3px; line-height:1.2}
+.card .c-sub{color:var(--muted); font-size:12.5px; margin:0}
+.card .c-bar{height:5px; border-radius:99px; background:var(--line); overflow:hidden; margin-top:12px}
+.card .c-bar > i{display:block; height:100%; background:var(--accent); transition:width .5s}
+.card.done-all .c-bar > i{background:var(--done)}
+.card .c-meta{display:flex; justify-content:space-between; align-items:center; margin-top:8px}
+.card .c-count{font-family:var(--font-mono); font-size:11px; color:var(--muted)}
+.card .c-go{font-size:16px; color:var(--accent); opacity:0; transition:.14s}
+.card:hover .c-go{opacity:1}
+.badge{font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--accent-ink);
+  background:var(--accent); border-radius:99px; padding:2px 9px}
+
+/* ============ Section header ============ */
 .sec-head{margin-bottom:20px}
 .sec-head .eyebrow{font-family:var(--font-mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent)}
-.sec-head h2{font-family:var(--font-display); font-weight:600; font-size:30px; letter-spacing:-.02em; margin:8px 0 6px}
+.sec-head h2{font-family:var(--font-display); font-weight:600; font-size:30px; letter-spacing:-.02em; margin:8px 0 6px; overflow-wrap:break-word}
 .sec-head p{margin:0; color:var(--muted); max-width:62ch}
-.sec-head .prog-inline{display:flex;align-items:center;gap:12px;margin-top:14px}
-.sec-head .track{flex:1;max-width:340px;height:8px;border-radius:99px;background:var(--line);overflow:hidden}
-.sec-head .track > i{display:block;height:100%;background:var(--accent);width:0;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+.sec-head .prog-inline{display:flex; align-items:center; gap:12px; margin-top:14px}
+.sec-head .track{flex:1; max-width:340px; height:8px; border-radius:99px; background:var(--line); overflow:hidden}
+.sec-head .track > i{display:block; height:100%; background:var(--accent); width:0; transition:width .5s cubic-bezier(.2,.7,.2,1)}
 .sec-head.all-done .track > i{background:var(--done)}
-.sec-head .pct{font-family:var(--font-mono);font-size:13px;color:var(--ink-dim)}
+.sec-head .pct{font-family:var(--font-mono); font-size:13px; color:var(--ink-dim)}
 
-/* ---- Items ---- */
+/* ============ Items ============ */
 .list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px}
-.item{
-  display:grid; grid-template-columns:26px 1fr auto; align-items:start; gap:14px;
+.item{display:grid; grid-template-columns:26px 1fr auto; align-items:start; gap:14px;
   background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-  padding:15px 16px; transition:border-color .15s, transform .12s, background .15s;
-}
+  padding:15px 16px; transition:border-color .15s, background .15s}
 .item:hover{border-color:color-mix(in srgb, var(--accent) 45%, var(--line))}
 .item.is-done{background:var(--panel-2); border-color:var(--line-soft)}
-
-.check{
-  margin-top:1px; width:24px; height:24px; border-radius:7px; cursor:pointer;
+.check{margin-top:1px; width:24px; height:24px; border-radius:7px; cursor:pointer;
   border:2px solid var(--muted); background:transparent; color:transparent;
-  display:grid; place-items:center; font-size:14px; transition:.15s; padding:0;
-}
+  display:grid; place-items:center; font-size:14px; transition:.15s; padding:0}
 .check:hover{border-color:var(--accent)}
 .item.is-done .check{background:var(--done); border-color:var(--done); color:var(--done-ink)}
-
 .item-body{min-width:0}
 .item-text{margin:0; font-size:15px; font-weight:600; color:var(--ink); overflow-wrap:break-word}
 .item.is-done .item-text{text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--done) 70%, transparent); color:var(--ink-dim)}
 .item-detail{margin:4px 0 0; font-size:12.5px; color:var(--muted); overflow-wrap:break-word}
-.chip{display:inline-flex;align-items:center;gap:5px;margin-top:8px;
-  font-family:var(--font-mono);font-size:11px;letter-spacing:.03em;
-  color:var(--ink-dim);background:var(--panel-2);
-  border:1px solid var(--line);border-radius:99px;padding:3px 10px}
-.pill-done{display:inline-flex;align-items:center;gap:5px;margin-top:8px;
-  font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:lowercase;
-  color:var(--done);background:color-mix(in srgb,var(--done) 15%, transparent);
-  border:1px solid color-mix(in srgb,var(--done) 40%, transparent);border-radius:99px;padding:3px 9px}
+.pill-done{display:inline-flex; align-items:center; gap:5px; margin-top:8px;
+  font-family:var(--font-mono); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:lowercase;
+  color:var(--done); background:color-mix(in srgb,var(--done) 15%, transparent);
+  border:1px solid color-mix(in srgb,var(--done) 40%, transparent); border-radius:99px; padding:3px 9px}
+.chip{display:inline-flex; align-items:center; gap:5px; margin-top:8px;
+  font-family:var(--font-mono); font-size:11px; letter-spacing:.03em;
+  color:var(--ink-dim); background:var(--panel-2);
+  border:1px solid var(--line); border-radius:99px; padding:3px 10px}
+.item-actions{display:flex; gap:4px}
+.mini{background:transparent; border:1px solid transparent; color:var(--muted); cursor:pointer;
+  border-radius:8px; padding:5px 8px; font-size:12px; transition:.15s; white-space:nowrap}
+.mini:hover{color:var(--ink); background:var(--panel-2); border-color:var(--line)}
+.mini.danger:hover{color:#ff7a7a; border-color:color-mix(in srgb,#ff7a7a 40%,var(--line))}
 
-.item-actions{display:flex; gap:4px; opacity:0; transition:.15s}
-.item:hover .item-actions,.item:focus-within .item-actions{opacity:1}
-.mini{background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;
-  border-radius:8px;padding:5px 8px;font-size:12px;transition:.15s}
-.mini:hover{color:var(--ink);background:var(--panel-2);border-color:var(--line)}
-.mini.danger:hover{color:#ff7a7a;border-color:color-mix(in srgb,#ff7a7a 40%,var(--line))}
-
-/* edit form */
 .edit-form{grid-column:1 / -1; display:flex; flex-direction:column; gap:8px}
-.edit-form input{font-family:inherit;font-size:14px;color:var(--ink);background:var(--bg);
-  border:1px solid var(--line);border-radius:9px;padding:9px 11px;width:100%}
-.edit-form input:focus{outline:none;border-color:var(--accent)}
-.edit-form input.detail{font-size:12.5px;color:var(--ink-dim)}
-.edit-form .row{display:flex;gap:8px;justify-content:flex-end}
-.btn{cursor:pointer;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;border:1px solid var(--line);background:var(--panel-2);color:var(--ink-dim)}
+.edit-form input{font-family:inherit; font-size:14px; color:var(--ink); background:var(--bg);
+  border:1px solid var(--line); border-radius:9px; padding:9px 11px; width:100%}
+.edit-form input:focus{outline:none; border-color:var(--accent)}
+.edit-form input.detail{font-size:12.5px; color:var(--ink-dim)}
+.edit-form .row{display:flex; gap:8px; justify-content:flex-end}
+.btn{cursor:pointer; border-radius:9px; padding:8px 14px; font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--panel-2); color:var(--ink-dim)}
 .btn:hover{color:var(--ink)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+.add-item{margin-top:12px; width:100%; border:1.5px dashed var(--line); background:transparent; color:var(--muted);
+  border-radius:12px; padding:12px; cursor:pointer; font-size:13px; font-weight:600; transition:.15s}
+.add-item:hover{border-color:var(--accent); color:var(--ink)}
 
-.add-item{margin-top:12px;width:100%;border:1.5px dashed var(--line);background:transparent;color:var(--muted);
-  border-radius:12px;padding:12px;cursor:pointer;font-size:13px;font-weight:600;transition:.15s}
-.add-item:hover{border-color:var(--accent);color:var(--ink)}
-
-/* ---- Resumo ---- */
-.hero{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px;margin-bottom:22px;
-  display:grid;grid-template-columns:auto 1fr;gap:26px;align-items:center;box-shadow:var(--shadow)}
-.hero .big-ring{--v:0;width:120px;height:120px;border-radius:50%;
-  background:conic-gradient(var(--accent) calc(var(--v)*1%),var(--line) 0);display:grid;place-items:center;transition:background .6s}
-.hero .big-ring > span{width:96px;height:96px;border-radius:50%;background:var(--panel);display:grid;place-items:center;flex-direction:column}
-.hero .big-ring b{font-family:var(--font-mono);font-size:26px;line-height:1}
-.hero .big-ring small{color:var(--muted);font-size:10px;letter-spacing:.15em;text-transform:uppercase;margin-top:3px}
-.hero-txt h3{font-family:var(--font-display);font-weight:600;font-size:22px;margin:0 0 6px}
-.hero-txt p{margin:0;color:var(--muted)}
-.hero-stats{display:flex;gap:22px;margin-top:14px}
-.hero-stats div b{font-family:var(--font-mono);font-size:20px;display:block}
-.hero-stats div span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
-
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px}
-.card h4{margin:0 0 14px;font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
-
-.tprog{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line-soft)}
+/* ============ Resumo ============ */
+.grid-2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+.rcard{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px}
+.rcard h4{margin:0 0 14px; font-family:var(--font-mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent)}
+.rcard.wide{grid-column:1 / -1}
+.tprog{display:flex; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid var(--line-soft)}
 .tprog:last-child{border-bottom:0}
-.tprog .tp-emoji{font-size:16px;width:22px;text-align:center}
-.tprog .tp-name{flex:1;font-size:13.5px;font-weight:600;cursor:pointer}
+.tprog .tp-emoji{font-size:16px; width:22px; text-align:center}
+.tprog .tp-name{flex:1; font-size:13.5px; font-weight:600; cursor:pointer; overflow-wrap:break-word}
 .tprog .tp-name:hover{color:var(--accent)}
-.tprog .tp-bar{width:110px;height:6px;border-radius:99px;background:var(--line);overflow:hidden}
-.tprog .tp-bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .5s}
+.tprog .tp-bar{width:96px; height:6px; border-radius:99px; background:var(--line); overflow:hidden; flex:none}
+.tprog .tp-bar > i{display:block; height:100%; background:var(--accent); width:0; transition:width .5s}
 .tprog.full .tp-bar > i{background:var(--done)}
-.tprog .tp-num{font-family:var(--font-mono);font-size:11px;color:var(--muted);width:38px;text-align:right}
-
-.pend{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-.pend li{display:flex;gap:9px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:13.5px}
+.tprog .tp-num{font-family:var(--font-mono); font-size:11px; color:var(--muted); width:38px; text-align:right; flex:none}
+.pend{list-style:none; margin:0; padding:0}
+.pend li{display:flex; gap:9px; align-items:baseline; padding:7px 0; border-bottom:1px solid var(--line-soft); font-size:13.5px}
 .pend li:last-child{border-bottom:0}
-.pend .p-tag{font-family:var(--font-mono);font-size:10px;color:var(--accent);white-space:nowrap}
-.pend .empty{color:var(--muted);font-style:italic;padding:8px 0}
+.pend .p-tag{font-family:var(--font-mono); font-size:10px; color:var(--accent); white-space:nowrap}
+.cron{width:100%; border-collapse:collapse; font-size:13px}
+.cron th,.cron td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--line-soft)}
+.cron th{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted)}
+.cron td.wk{font-family:var(--font-mono); color:var(--accent); white-space:nowrap}
 
-.cron{width:100%;border-collapse:collapse;margin-top:2px;font-size:13px}
-.cron th,.cron td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-soft)}
-.cron th{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
-.cron td.wk{font-family:var(--font-mono);color:var(--accent);white-space:nowrap}
-.card.wide{grid-column:1 / -1}
+.foot{margin-top:26px; color:var(--muted); font-size:12px; text-align:center}
+.foot code{font-family:var(--font-mono); background:var(--panel); padding:2px 6px; border-radius:6px; border:1px solid var(--line)}
+.empty-state{text-align:center; padding:40px 20px; color:var(--muted)}
+.empty-state .big{font-size:40px; margin-bottom:10px}
 
-.foot{margin-top:26px;color:var(--muted);font-size:12px;text-align:center}
-.foot code{font-family:var(--font-mono);background:var(--panel);padding:2px 6px;border-radius:6px;border:1px solid var(--line)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 
-/* focus */
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.item:focus-within{outline:none}
-
-/* ---- responsive ---- */
-.menu-btn{display:none}
-@media (max-width:860px){
-  .app{grid-template-columns:1fr}
-  .side{position:fixed;z-index:20;width:280px;left:0;top:0;transform:translateX(-102%);transition:transform .25s;box-shadow:var(--shadow)}
-  .app.nav-open .side{transform:none}
-  .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15}
-  .app.nav-open .scrim{display:block}
-  .menu-btn{display:inline-flex}
-  .content{padding:20px 16px 50px}
-  .topbar{padding:12px 16px}
-  .hero{grid-template-columns:1fr;text-align:center;justify-items:center}
+@media (max-width:640px){
+  .wrap{padding:16px 15px 60px}
+  .home-head h1{font-size:30px}
   .grid-2{grid-template-columns:1fr}
-  .item-actions{opacity:1}
+  .cards{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important}}
 </style>
 </head>
 <body>
-<div class="app" id="app">
-  <div class="scrim" data-action="close-nav"></div>
-
-  <!-- Sidebar -->
-  <aside class="side" id="side">
-    <div class="brand">
-      <div class="eyebrow">trilha de estudos</div>
-      <h1>IA &amp; Desenvolvimento</h1>
-      <p>Do fundamento ao produto — no seu ritmo.</p>
-    </div>
-    <nav id="nav"></nav>
-  </aside>
-
-  <!-- Main -->
-  <main class="main">
-    <div class="topbar">
-      <button class="act icon menu-btn" data-action="open-nav" aria-label="Abrir menu">☰</button>
-      <div class="overall">
-        <div class="ring" id="topRing"><span id="topRingTxt" class="mono">0%</span></div>
-        <div class="lbl">progresso geral<b id="topCount">0 de 0 concluídos</b></div>
-      </div>
-      <div class="grow"></div>
-      <button class="act" data-action="theme" title="Alternar tema"><span id="themeIcon">☾</span><span id="themeTxt">Escuro</span></button>
-      <button class="act" data-action="export">⤓ Exportar</button>
-      <button class="act" data-action="import">⤒ Importar</button>
-      <button class="act" data-action="restore">↺ Restaurar</button>
-      <input type="file" id="fileIn" accept="application/json,.json" hidden>
-    </div>
-    <div class="content" id="content"></div>
-  </main>
-</div>
+<input type="file" id="fileIn" accept="application/json,.json" hidden>
+<main id="app"></main>
 
 <script>
-/* ============================ SEED (conteúdo padrão) ============================ */
+/* ============================ SEED ============================ */
 const SEED = {
   meta:{ titulo:"Trilha de Estudos — IA & Dev", versao:1 },
   abas:[
@@ -363,8 +289,6 @@ const SEED = {
       ]}
   ]
 };
-
-/* Cronograma (estático) */
 const CRONO = [
   ["Sem 1","Fundamentos de IA + começar a usar a Claude"],
   ["Sem 2","Engenharia de Prompt (prática diária)"],
@@ -381,259 +305,250 @@ const CRONO = [
 /* ============================ Estado ============================ */
 const STORE_KEY = "estudos-ia-data-v1";
 const THEME_KEY = "estudos-ia-theme";
-let state, active = "afazer", editingId = null;
+let state, editingId = null;
 
 const clone = o => JSON.parse(JSON.stringify(o));
 const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid = () => "x"+Math.abs(Date.now()+Math.floor(performance.now()*1000)).toString(36);
 
 function load(){
-  try{
-    const raw = localStorage.getItem(STORE_KEY);
+  try{ const raw = localStorage.getItem(STORE_KEY);
     if(raw){ const d = JSON.parse(raw); if(d && Array.isArray(d.abas)) return d; }
   }catch(e){}
   return clone(SEED);
 }
 function persist(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){} }
-
-function stats(aba){ const t=aba.itens.length, d=aba.itens.filter(i=>i.feito).length; return {t,d,pct:t? Math.round(d/t*100):0}; }
+function stats(a){ const t=a.itens.length, d=a.itens.filter(i=>i.feito).length; return {t,d,pct:t?Math.round(d/t*100):0}; }
 function totals(){ let t=0,d=0; state.abas.forEach(a=>{t+=a.itens.length; d+=a.itens.filter(i=>i.feito).length;}); return {t,d,pct:t?Math.round(d/t*100):0}; }
-const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const uid = () => "x"+Math.abs(Date.now()+Math.floor(performance.now()*1000)).toString(36);
+function findItem(id){ for(const a of state.abas){ const it=a.itens.find(i=>i.id===id); if(it) return {aba:a,it}; } return null; }
+function curTheme(){ return document.documentElement.getAttribute("data-theme")||"dark"; }
 
-/* ============================ Render ============================ */
-function renderNav(){
-  const nav = $("#nav");
+/* ============================ Roteamento ============================ */
+function route(){ const h=(location.hash||"").replace(/^#/,""); return h||"home"; }
+function go(id){ if(route()===id){ render(); } else { location.hash = id; } }
+
+window.addEventListener("hashchange", ()=>{ editingId=null; render(); window.scrollTo({top:0}); });
+
+/* ============================ Componentes ============================ */
+function themeBtn(){ const t=curTheme(); return `<button class="ghost" data-action="theme" title="Alternar tema">${t==="dark"?"☾ Escuro":"☀ Claro"}</button>`; }
+
+function viewHome(){
   const ov = totals();
   const pend = ov.t - ov.d;
-  let html = `<button class="tab overview ${active==='afazer'?'active':''}" data-tab="afazer">
-      <span class="emoji">✅</span>
-      <span class="t-main"><span class="t-name">A fazer</span>
-        <span class="t-bar" style="--p:${ov.pct}"><i></i></span></span>
-      <span class="t-count mono">${pend}</span>
+  let cards = `
+    <button class="card feature" data-go="afazer">
+      <div class="c-top"><span class="c-emoji">✅</span>${pend?`<span class="badge">${pend}</span>`:`<span class="badge" style="background:var(--done);color:var(--done-ink)">0</span>`}</div>
+      <div><p class="c-name">A fazer</p><p class="c-sub">${pend?`${pend} item${pend===1?"":"s"} pendente${pend===1?"":"s"}`:"Tudo concluído 🎉"}</p></div>
     </button>
-    <button class="tab overview ${active==='resumo'?'active':''}" data-tab="resumo">
-      <span class="emoji">📊</span>
-      <span class="t-main"><span class="t-name">Visão geral</span>
-        <span class="t-bar" style="--p:${ov.pct}"><i></i></span></span>
-      <span class="t-count">${ov.pct}%</span>
-    </button>
-    <div class="nav-label">estágios</div>`;
-  state.abas.forEach((a,idx)=>{
-    const s = stats(a);
-    html += `<button class="tab ${active===a.id?'active':''} ${s.t&&s.d===s.t?'done-all':''}" data-tab="${a.id}" style="--p:${s.pct}">
-      <span class="num mono">${String(idx+1).padStart(2,"0")}</span>
-      <span class="t-main"><span class="t-name">${a.emoji} ${esc(a.nome)}</span>
-        <span class="t-bar"><i></i></span></span>
-      <span class="t-count mono">${s.d}/${s.t}</span>
+    <button class="card feature" data-go="resumo">
+      <div class="c-top"><span class="c-emoji">📊</span></div>
+      <div><p class="c-name">Visão geral</p><p class="c-sub">Progresso, pendentes e cronograma</p></div>
     </button>`;
-  });
-  nav.innerHTML = html;
+
+  let stages = state.abas.map((a,idx)=>{
+    const s = stats(a); const full = s.t && s.d===s.t;
+    return `<button class="card ${full?'done-all':''}" data-go="${a.id}">
+      <div class="c-top"><span class="c-num mono">${String(idx+1).padStart(2,"0")}</span><span class="c-emoji">${a.emoji}</span></div>
+      <p class="c-name">${esc(a.nome)}</p>
+      <p class="c-sub">${esc(a.resumo)}</p>
+      <div class="c-bar"><i style="width:${s.pct}%"></i></div>
+      <div class="c-meta"><span class="c-count mono">${s.d}/${s.t} • ${s.pct}%</span><span class="c-go">→</span></div>
+    </button>`;
+  }).join("");
+
+  return `<div class="wrap">
+    <div class="bar"><span class="brandmini">📚 Trilha de Estudos</span><span class="spacer"></span>${themeBtn()}</div>
+
+    <div class="home-head">
+      <div class="eyebrow">trilha de estudos</div>
+      <h1>IA &amp; Desenvolvimento</h1>
+      <p>Escolha por onde começar. Clique em um card para abrir a tela do tema — seu progresso fica salvo automaticamente.</p>
+    </div>
+
+    <div class="overall-card">
+      <div class="big-ring" style="--v:${ov.pct}"><span><b class="mono">${ov.pct}%</b><small>concluído</small></span></div>
+      <div class="overall-txt">
+        <h3>${ov.pct===100?"Trilha concluída — mandou bem!":ov.pct===0?"Pronto para começar":"Você está a caminho"}</h3>
+        <p>${ov.d} de ${ov.t} itens concluídos em ${state.abas.length} estágios.</p>
+        <div class="track"><i style="width:${ov.pct}%"></i></div>
+      </div>
+    </div>
+
+    <div class="section-label">acesso rápido</div>
+    <div class="cards">${cards}</div>
+
+    <div class="section-label">estágios da trilha</div>
+    <div class="cards">${stages}</div>
+
+    <div class="bar" style="margin-top:26px; justify-content:center; flex-wrap:wrap">
+      <button class="ghost" data-action="export">⤓ Exportar</button>
+      <button class="ghost" data-action="import">⤒ Importar</button>
+      <button class="ghost" data-action="restore">↺ Restaurar padrão</button>
+    </div>
+    <p class="foot">Edits salvos automaticamente neste navegador. Use <code>Exportar</code> para gerar o <code>data.json</code> e versioná-lo no git.</p>
+  </div>`;
 }
 
-function renderTop(){
-  const ov = totals();
-  $("#topRing").style.setProperty("--v", ov.pct);
-  $("#topRingTxt").textContent = ov.pct+"%";
-  $("#topCount").textContent = `${ov.d} de ${ov.t} concluídos`;
-}
+function topBar(){ return `<div class="bar"><button class="ghost back" data-action="voltar">← Voltar</button><span class="spacer"></span>${themeBtn()}</div>`; }
 
-function renderContent(){
-  if(active==="afazer"){ renderAfazer(); return; }
-  if(active==="resumo"){ renderResumo(); return; }
-  const idx = state.abas.findIndex(a=>a.id===active);
-  const a = state.abas[idx];
-  const s = stats(a);
-  let html = `<div class="sec-head ${s.t&&s.d===s.t?'all-done':''}">
-    <div class="eyebrow">estágio ${String(idx+1).padStart(2,"0")} — ${s.d}/${s.t} concluídos</div>
-    <h2>${a.emoji} ${esc(a.nome)}</h2>
-    <p>${esc(a.resumo||"")}</p>
-    <div class="prog-inline"><span class="track"><i style="width:${s.pct}%"></i></span><span class="pct">${s.pct}%</span></div>
-  </div><ul class="list">`;
-
-  a.itens.forEach(it=>{
+function viewStage(idx){
+  const a = state.abas[idx]; const s = stats(a);
+  let items = a.itens.map(it=>{
     if(it.id===editingId){
-      html += `<li class="item editing" data-id="${it.id}">
+      return `<li class="item editing" data-id="${it.id}">
         <form class="edit-form" data-form="${it.id}">
           <input name="texto" value="${esc(it.texto)}" placeholder="O que estudar…" autocomplete="off" required>
           <input name="detalhe" class="detail" value="${esc(it.detalhe||"")}" placeholder="Detalhe / dica (opcional)" autocomplete="off">
-          <div class="row">
-            <button type="button" class="btn" data-action="cancel">Cancelar</button>
-            <button type="submit" class="btn primary">Salvar</button>
-          </div>
+          <div class="row"><button type="button" class="btn" data-action="cancel">Cancelar</button><button type="submit" class="btn primary">Salvar</button></div>
         </form></li>`;
-    } else {
-      html += `<li class="item ${it.feito?'is-done':''}" data-id="${it.id}">
-        <button class="check" data-action="toggle" aria-pressed="${it.feito}" aria-label="Marcar como concluído">${it.feito?"✓":""}</button>
-        <div class="item-body">
-          <p class="item-text">${esc(it.texto)}</p>
-          ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
-          ${it.feito?`<span class="pill-done">✓ pronto</span>`:""}
-        </div>
-        <div class="item-actions">
-          <button class="mini" data-action="edit">editar</button>
-          <button class="mini danger" data-action="delete">excluir</button>
-        </div></li>`;
     }
-  });
-  html += `</ul><button class="add-item" data-action="add">+ adicionar item</button>`;
-  $("#content").innerHTML = html;
-  requestAnimationFrame(()=>{ const f=$(".prog-inline .track > i"); if(f) f.style.width=s.pct+"%"; });
+    return `<li class="item ${it.feito?'is-done':''}" data-id="${it.id}">
+      <button class="check" data-action="toggle" aria-pressed="${it.feito}" aria-label="Marcar como concluído">${it.feito?"✓":""}</button>
+      <div class="item-body">
+        <p class="item-text">${esc(it.texto)}</p>
+        ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
+        ${it.feito?`<span class="pill-done">✓ pronto</span>`:""}
+      </div>
+      <div class="item-actions"><button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>
+    </li>`;
+  }).join("");
+
+  return `<div class="wrap">
+    ${topBar()}
+    <div class="sec-head ${s.t&&s.d===s.t?'all-done':''}">
+      <div class="eyebrow">estágio ${String(idx+1).padStart(2,"0")} — ${s.d}/${s.t} concluídos</div>
+      <h2>${a.emoji} ${esc(a.nome)}</h2>
+      <p>${esc(a.resumo)}</p>
+      <div class="prog-inline"><span class="track"><i style="width:${s.pct}%"></i></span><span class="pct">${s.pct}%</span></div>
+    </div>
+    <ul class="list">${items}</ul>
+    <button class="add-item" data-action="add">+ adicionar item</button>
+  </div>`;
 }
 
-function renderAfazer(){
+function viewAfazer(){
   const ov = totals();
   const pend = [];
-  state.abas.forEach(a=>a.itens.forEach(it=>{ if(!it.feito) pend.push({aba:a, it}); }));
+  state.abas.forEach(a=>a.itens.forEach(it=>{ if(!it.feito) pend.push({aba:a,it}); }));
 
   let head = `<div class="sec-head">
     <div class="eyebrow">a fazer — ${pend.length} pendente${pend.length===1?"":"s"}</div>
     <h2>✅ Tarefas a fazer</h2>
-    <p>Todos os itens ainda não concluídos, reunidos num só lugar. Marque para concluir ou clique em <b>abrir</b> para ir ao estágio.</p>
+    <p>Todos os itens ainda não concluídos, reunidos aqui. Marque para concluir ou clique em <b>abrir</b> para ir ao estágio.</p>
   </div>`;
 
+  let body;
   if(!pend.length){
-    $("#content").innerHTML = head + `<ul class="list"><li class="item" style="justify-items:center">
-      <div class="item-body" style="grid-column:1/-1;text-align:center;padding:14px">
-        <p class="item-text">🎉 Nada pendente!</p>
-        <p class="item-detail">Você concluiu todos os ${ov.t} itens da trilha. Mandou muito bem.</p>
-      </div></li></ul>`;
-    return;
+    body = `<div class="empty-state"><div class="big">🎉</div><p class="item-text" style="color:var(--ink)">Nada pendente!</p>
+      <p>Você concluiu todos os ${ov.t} itens da trilha. Mandou muito bem.</p></div>`;
+  } else {
+    body = `<ul class="list">${pend.map(({aba,it})=>`
+      <li class="item" data-id="${it.id}">
+        <button class="check" data-action="toggle" aria-pressed="false" aria-label="Marcar como concluído"></button>
+        <div class="item-body">
+          <p class="item-text">${esc(it.texto)}</p>
+          ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
+          <span class="chip">${aba.emoji} ${esc(aba.nome)}</span>
+        </div>
+        <div class="item-actions"><button class="mini" data-go="${aba.id}">abrir →</button></div>
+      </li>`).join("")}</ul>`;
   }
-
-  let rows = pend.map(({aba,it})=>`
-    <li class="item" data-id="${it.id}">
-      <button class="check" data-action="toggle" aria-pressed="false" aria-label="Marcar como concluído"></button>
-      <div class="item-body">
-        <p class="item-text">${esc(it.texto)}</p>
-        ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
-        <span class="chip">${aba.emoji} ${esc(aba.nome)}</span>
-      </div>
-      <div class="item-actions" style="opacity:1">
-        <button class="mini" data-goto="${aba.id}">abrir →</button>
-      </div>
-    </li>`).join("");
-
-  $("#content").innerHTML = head + `<ul class="list">${rows}</ul>`;
+  return `<div class="wrap">${topBar()}${head}${body}</div>`;
 }
 
-function renderResumo(){
+function viewResumo(){
   const ov = totals();
   const pend = [];
   state.abas.forEach(a=>a.itens.forEach(i=>{ if(!i.feito) pend.push({tag:a.emoji+" "+a.nome, texto:i.texto}); }));
 
-  let bars = "";
-  state.abas.forEach((a,idx)=>{
+  let bars = state.abas.map((a,idx)=>{
     const s = stats(a);
-    bars += `<div class="tprog ${s.t&&s.d===s.t?'full':''}">
+    return `<div class="tprog ${s.t&&s.d===s.t?'full':''}">
       <span class="tp-emoji">${a.emoji}</span>
-      <span class="tp-name" data-goto="${a.id}">${esc(a.nome)}</span>
+      <span class="tp-name" data-go="${a.id}">${esc(a.nome)}</span>
       <span class="tp-bar"><i style="width:${s.pct}%"></i></span>
-      <span class="tp-num mono">${s.d}/${s.t}</span>
-    </div>`;
-  });
+      <span class="tp-num mono">${s.d}/${s.t}</span></div>`;
+  }).join("");
 
   let pendHtml = pend.length
     ? `<ul class="pend">${pend.slice(0,7).map(p=>`<li><span class="p-tag">${esc(p.tag)}</span><span>${esc(p.texto)}</span></li>`).join("")}
         ${pend.length>7?`<li><span class="p-tag">+${pend.length-7}</span><span>itens pendentes…</span></li>`:""}</ul>`
-    : `<p class="empty" style="color:var(--muted)">🎉 Tudo concluído. Parabéns!</p>`;
+    : `<div class="empty-state"><div class="big">🎉</div><p>Tudo concluído. Parabéns!</p></div>`;
 
   let crono = CRONO.map(r=>`<tr><td class="wk">${r[0]}</td><td>${esc(r[1])}</td></tr>`).join("");
 
-  $("#content").innerHTML = `
+  return `<div class="wrap">
+    ${topBar()}
     <div class="sec-head">
       <div class="eyebrow">visão geral</div>
-      <h2>Seu progresso</h2>
-      <p>Um painel de bordo da sua trilha. Marque itens como <b>pronto</b> nos estágios e acompanhe tudo aqui.</p>
+      <h2>📊 Seu progresso</h2>
+      <p>Um painel da sua trilha. Marque itens como <b>pronto</b> nos estágios e acompanhe tudo aqui.</p>
     </div>
-
-    <div class="hero">
+    <div class="overall-card" style="margin-bottom:22px">
       <div class="big-ring" style="--v:${ov.pct}"><span><b class="mono">${ov.pct}%</b><small>concluído</small></span></div>
-      <div class="hero-txt">
-        <h3>${ov.pct===100?"Trilha concluída — mandou bem!":ov.pct===0?"Tudo pronto para começar":"Você está a caminho"}</h3>
-        <p>${ov.d} de ${ov.t} itens concluídos em ${state.abas.length} estágios.</p>
-        <div class="hero-stats">
-          <div><b class="mono" style="color:var(--done)">${ov.d}</b><span>feitos</span></div>
-          <div><b class="mono" style="color:var(--accent)">${ov.t-ov.d}</b><span>pendentes</span></div>
-          <div><b class="mono">${state.abas.length}</b><span>estágios</span></div>
-        </div>
+      <div class="overall-txt">
+        <h3>${ov.d} de ${ov.t} itens</h3>
+        <p>${ov.t-ov.d} pendentes • ${state.abas.length} estágios</p>
+        <div class="track"><i style="width:${ov.pct}%"></i></div>
       </div>
     </div>
-
     <div class="grid-2">
-      <div class="card"><h4>Progresso por estágio</h4>${bars}</div>
-      <div class="card"><h4>Próximos passos</h4>${pendHtml}</div>
-      <div class="card wide"><h4>Cronograma — ~10 semanas (≈1h/dia)</h4>
-        <table class="cron"><thead><tr><th>Período</th><th>Foco</th></tr></thead><tbody>${crono}</tbody></table>
-      </div>
+      <div class="rcard"><h4>Progresso por estágio</h4>${bars}</div>
+      <div class="rcard"><h4>Próximos passos</h4>${pendHtml}</div>
+      <div class="rcard wide"><h4>Cronograma — ~10 semanas (≈1h/dia)</h4>
+        <table class="cron"><thead><tr><th>Período</th><th>Foco</th></tr></thead><tbody>${crono}</tbody></table></div>
     </div>
-    <p class="foot">Edits salvos automaticamente neste navegador. Use <code>Exportar</code> para gerar o <code>data.json</code> e versioná-lo no git.</p>`;
-
-  requestAnimationFrame(()=>{
-    $(".big-ring")?.style.setProperty("--v", ov.pct);
-    document.querySelectorAll(".tprog .tp-bar > i").forEach((el,idx)=>{ el.style.width = stats(state.abas[idx]).pct+"%"; });
-  });
+  </div>`;
 }
 
-function renderAll(){ renderNav(); renderTop(); renderContent(); }
+/* ============================ Render ============================ */
+function render(){
+  const r = route();
+  let html;
+  if(r==="home") html = viewHome();
+  else if(r==="afazer") html = viewAfazer();
+  else if(r==="resumo") html = viewResumo();
+  else { const idx = state.abas.findIndex(a=>a.id===r); if(idx<0){ location.hash=""; return; } html = viewStage(idx); }
+  $("#app").innerHTML = html;
+}
 
 /* ============================ Ações ============================ */
-function setActive(id){ active=id; editingId=null; document.getElementById("app").classList.remove("nav-open"); renderAll(); window.scrollTo({top:0}); }
-
-function findItem(id){
-  for(const a of state.abas){ const it=a.itens.find(i=>i.id===id); if(it) return {aba:a, it}; }
-  return null;
-}
-
 document.addEventListener("click", e=>{
-  const tabBtn = e.target.closest("[data-tab]");
-  if(tabBtn){ setActive(tabBtn.dataset.tab); return; }
+  const goEl = e.target.closest("[data-go]");
+  if(goEl){ go(goEl.dataset.go); return; }
 
-  const goto = e.target.closest("[data-goto]");
-  if(goto){ setActive(goto.dataset.goto); return; }
-
-  const act = e.target.closest("[data-action]");
-  if(!act) return;
+  const act = e.target.closest("[data-action]"); if(!act) return;
   const action = act.dataset.action;
-  const li = act.closest(".item");
-  const id = li?.dataset.id;
+  const li = act.closest(".item"); const id = li?.dataset.id;
 
   switch(action){
-    case "open-nav": document.getElementById("app").classList.add("nav-open"); break;
-    case "close-nav": document.getElementById("app").classList.remove("nav-open"); break;
+    case "voltar": if(history.length>1){ history.back(); } else { go("home"); } break;
     case "theme": toggleTheme(); break;
     case "export": exportJSON(); break;
     case "import": $("#fileIn").click(); break;
     case "restore":
       if(confirm("Restaurar o conteúdo padrão? Suas edições e marcações serão apagadas.")){
-        state = clone(SEED); editingId=null; persist(); renderAll();
+        state = clone(SEED); editingId=null; persist(); render();
       } break;
-    case "toggle":{ const f=findItem(id); if(f){ f.it.feito=!f.it.feito; persist(); renderAll(); } break; }
-    case "edit": editingId=id; renderContent(); focusEdit(); break;
-    case "cancel":{ // if new empty item, drop it
-      const f=findItem(editingId); if(f && !f.it.texto){ f.aba.itens=f.aba.itens.filter(i=>i.id!==editingId); }
-      editingId=null; renderContent(); break; }
-    case "delete":{ const f=findItem(id); if(f && confirm("Excluir este item?")){ f.aba.itens=f.aba.itens.filter(i=>i.id!==id); persist(); renderAll(); } break; }
-    case "add":{
-      const aba = state.abas.find(a=>a.id===active); if(!aba) break;
-      const nid = uid(); aba.itens.push({id:nid, texto:"", detalhe:"", feito:false});
-      editingId=nid; renderContent(); focusEdit(); break; }
+    case "toggle":{ const f=findItem(id); if(f){ f.it.feito=!f.it.feito; persist(); render(); } break; }
+    case "edit": editingId=id; render(); focusEdit(); break;
+    case "cancel":{ const f=findItem(editingId); if(f && !f.it.texto){ f.aba.itens=f.aba.itens.filter(i=>i.id!==editingId); } editingId=null; render(); break; }
+    case "delete":{ const f=findItem(id); if(f && confirm("Excluir este item?")){ f.aba.itens=f.aba.itens.filter(i=>i.id!==id); persist(); render(); } break; }
+    case "add":{ const aba=state.abas.find(a=>a.id===route()); if(!aba) break; const nid=uid(); aba.itens.push({id:nid,texto:"",detalhe:"",feito:false}); editingId=nid; render(); focusEdit(); break; }
   }
 });
 
 document.addEventListener("submit", e=>{
   const form = e.target.closest("[data-form]"); if(!form) return;
   e.preventDefault();
-  const id = form.dataset.form; const f = findItem(id);
-  if(f){
-    f.it.texto = form.texto.value.trim() || "(sem título)";
-    f.it.detalhe = form.detalhe.value.trim();
-  }
-  editingId=null; persist(); renderAll();
+  const f = findItem(form.dataset.form);
+  if(f){ f.it.texto = form.texto.value.trim() || "(sem título)"; f.it.detalhe = form.detalhe.value.trim(); }
+  editingId=null; persist(); render();
 });
 
 function focusEdit(){ requestAnimationFrame(()=>{ const i=document.querySelector(".edit-form input[name='texto']"); if(i){ i.focus(); i.select(); } }); }
 
-/* Export / Import */
 function exportJSON(){
   const blob = new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
   const url = URL.createObjectURL(blob);
@@ -644,33 +559,21 @@ $("#fileIn").addEventListener("change", e=>{
   const file = e.target.files[0]; if(!file) return;
   const r = new FileReader();
   r.onload = () => {
-    try{ const d = JSON.parse(r.result);
-      if(!d || !Array.isArray(d.abas)) throw 0;
-      state = d; editingId=null; persist(); renderAll();
+    try{ const d = JSON.parse(r.result); if(!d || !Array.isArray(d.abas)) throw 0;
+      state = d; editingId=null; persist(); render();
     }catch(err){ alert("Arquivo inválido. Selecione um data.json exportado por este app."); }
     e.target.value="";
   };
   r.readAsText(file);
 });
 
-/* Theme */
-function applyTheme(t){
-  document.documentElement.setAttribute("data-theme", t);
-  $("#themeIcon").textContent = t==="dark" ? "☾" : "☀";
-  $("#themeTxt").textContent = t==="dark" ? "Escuro" : "Claro";
-  renderTop(); // ring bg uses --bg
-}
-function toggleTheme(){
-  const cur = document.documentElement.getAttribute("data-theme");
-  const next = cur==="dark" ? "light" : "dark";
-  try{ localStorage.setItem(THEME_KEY, next); }catch(e){}
-  applyTheme(next);
-}
+function applyTheme(t){ document.documentElement.setAttribute("data-theme", t); }
+function toggleTheme(){ const next = curTheme()==="dark"?"light":"dark"; try{ localStorage.setItem(THEME_KEY, next); }catch(e){} applyTheme(next); render(); }
 
 /* ============================ Init ============================ */
 state = load();
 applyTheme((()=>{ try{ return localStorage.getItem(THEME_KEY)||"dark"; }catch(e){ return "dark"; } })());
-renderAll();
+render();
 </script>
 </body>
 </html>

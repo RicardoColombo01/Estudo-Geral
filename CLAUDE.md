@@ -48,9 +48,21 @@ Três decisões fazem o cliente quase não precisar saber disso:
 | Carga | `load()`, `carregarTrilha()`, `carregarProgresso()`, `recarregar()` |
 | Progresso | `progresso` (Set), `marcarItem()`, `aplicarProgresso()`, `sincProgresso()` |
 | Datas | `progressoEm` (Map id→ISO), `chaveDia()`, `diasDeEstudo()`, `calcularSequencia()`, `selo()` |
+| Capacidades | `detectarColunas()`, `verificarAdmin()` — flags `temNota`, `temOrigem`, `souAdmin` |
+| Modelo oficial | `modoModelo`, `faixaModelo()`, ação `modo-modelo` |
+| Novidades | `carregarNovidades()`, `adicionarNovidades()`, `dispensarNovidades()`, `viewNovidades()` |
+| Notas | `blocoNota()`, `acoesItem()`, `focusNota()`, ramo `[data-form-nota]` do submit |
+| Mural | `ligarRealtimeMural()`, `desligarRealtimeMural()`, `ajustarMural()`, `digitandoNoMural()` |
 | Migrações | `migrarProgressoAntigo()`, `migrarProgressoParaConta()` — casam por **texto** |
 | Telas | `viewHome()`, `viewStage()`, `viewAfazer()`, `viewResumo()`, `viewMural()`, `render()` |
 | Ações | um `click` delegado com `switch(action)`, um `submit` com 3 ramos |
+
+**Degradação (a regra que permitiu publicar o código antes do SQL):**
+`detectarColunas()` e `verificarAdmin()` sondam o banco uma vez por sessão e ligam/desligam
+cada recurso. Sem `nota` não aparece o botão 📝; sem `origem_id` não há novidades; sem
+`admins` ninguém é admin. Por isso a ordem entre rodar o SQL e dar push **não importa** — não
+existe janela com o site quebrado. Qualquer recurso novo que dependa de schema deve seguir
+esse mesmo padrão.
 
 **Invariantes que devem ser preservadas:**
 
@@ -68,6 +80,8 @@ Três decisões fazem o cliente quase não precisar saber disso:
 | `index.html` | O app inteiro |
 | `supabase.sql` | Schema base. ⛔ **Nunca rodar depois do `supabase-contas.sql`** — recria policies abertas |
 | `supabase-contas.sql` | Migração para contas: dono, `progresso`, policies, trigger |
+| `supabase-evolucao.sql` | Fases 3–6: realtime, `admins`, `origem_id`+`modelo_dispensado`, `nota`. Só adiciona policies |
+| `manifest.json`, `sw.js`, `icon-*.png` | PWA. O `sw.js` nunca intercepta `supabase.co` |
 | `data.json` | Backup versionável (está com a semente antiga; regerar pelo Exportar) |
 
 ## Armadilhas que já custaram tempo aqui
@@ -84,6 +98,12 @@ Três decisões fazem o cliente quase não precisar saber disso:
   devolveria `#access_token=` e atropelaria o `route()`.
 - **SDK via `<script src>` UMD, nunca `type="module"`** — módulo ES quebra o `file://`, e o
   duplo clique no arquivo precisa continuar funcionando.
+- **Admin também pode apagar o modelo.** Desde a Fase 4 o RLS autoriza o admin a escrever nas
+  linhas com `user_id is null`. Todo `DELETE` em massa precisa de filtro **explícito** de dono
+  — `substituirTrilha()` usava `id=not.is.null` confiando no RLS e apagaria a trilha oficial
+  de todo mundo junto com a sua.
+- **`user_id` tem `default auth.uid()`.** Ao criar linha do modelo, mandar `user_id: null`
+  explícito, senão o default carimba o admin como dono e a linha vira a cópia dele.
 - **`concluido_em` é `timestamptz`, guardado em UTC.** Agrupar conclusão por dia tem que usar
   o fuso do aparelho (`chaveDia()`): estudar às 21h em SP já é o dia seguinte em UTC, e
   contar por UTC parte uma noite de estudo em dois dias — sequência inflada, sem erro nenhum.
@@ -113,16 +133,17 @@ Checar sintaxe do JS sem abrir navegador: extrair o último bloco `<script>` e `
 
 | Fase | | Estado |
 |---|---|---|
-| 1 | publicar consentimento do Google | pendente — **ele faz**, no Google Cloud Console |
-| 2 | datas e sequência | ✅ feita em 2026-07-28, commit `6438a72` |
-| 3 | mural em tempo real | pendente |
-| 4 | admin do modelo oficial | pendente |
-| 5 | puxar novidades do modelo | pendente |
-| 6 | anotações por item | pendente |
-| 7 | PWA | pendente |
+| 1 | publicar consentimento do Google | pendente — **só o Ricardo faz**, no Google Cloud Console |
+| 2 | datas e sequência | ✅ 2026-07-28, commit `6438a72` |
+| 3 | mural em tempo real | ✅ código no ar; **falta rodar a seção 3 do SQL** |
+| 4 | admin do modelo oficial | ✅ código no ar; **falta rodar a seção 4 do SQL** (e pôr o e-mail dele) |
+| 5 | puxar novidades do modelo | ✅ código no ar; **falta rodar a seção 5 do SQL** |
+| 6 | anotações por item | ✅ código no ar; **falta rodar a seção 6 do SQL** |
+| 7 | PWA | ✅ 2026-07-28, completa (não depende de SQL) |
 
-Fases 3 a 7 precisam de `supabase-evolucao.sql` (ainda não existe). Ordem sugerida no plano:
-a 4 vem antes da 5 de propósito.
+⚠️ **O `supabase-evolucao.sql` ainda não foi rodado no banco** (conferido em 2026-07-28:
+`admins` e `modelo_dispensado` dão 404, `nota` e `origem_id` dão 400). Até rodar, cada
+recurso fica desligado sozinho — ver "degradação" abaixo.
 
 > ⚠️ **NÃO EXECUTAR NENHUMA FASE SEM O RICARDO AUTORIZAR.** Ele pediu explicitamente para
 > deixar pronto e só realizar quando voltar e mandar. Uma fase por vez, commit próprio.

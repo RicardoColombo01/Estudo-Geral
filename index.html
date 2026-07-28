@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Trilha de Estudos — IA & Dev</title>
+
+<!-- PWA. Os caminhos são relativos (./) porque o site vive em
+     /Estudo-Geral/, não na raiz do domínio: com "/" o manifest e o
+     service worker apontariam para fora do projeto. -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#FF8A5B">
+<link rel="icon" href="./icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <style>
 /* ============ Tokens ============ */
 :root{
@@ -243,6 +251,30 @@ button{font-family:inherit}
 .msg-head time{font-family:var(--font-mono); font-size:10.5px; color:var(--muted)}
 .msg-body{margin:0; font-size:14px; color:var(--ink); overflow-wrap:break-word; white-space:pre-wrap}
 
+/* ============ Faixas (modelo oficial / novidades) ============ */
+.faixa{display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
+  padding:12px max(22px, calc((100% - 860px) / 2)); font-size:13.5px; color:var(--ink)}
+.faixa b{color:var(--ink)}
+.faixa.modelo{background:color-mix(in srgb, var(--gold) 16%, var(--panel)); border-bottom:1px solid color-mix(in srgb, var(--gold) 45%, var(--line))}
+.faixa.nov{background:color-mix(in srgb, var(--accent) 12%, var(--panel)); border-bottom:1px solid color-mix(in srgb, var(--accent) 40%, var(--line))}
+.faixa .btn{flex:none}
+
+/* ============ Anotações ============ */
+.item-nota{margin:9px 0 0; padding:9px 12px; font-size:13px; color:var(--ink-dim);
+  background:var(--panel-2); border-left:3px solid color-mix(in srgb, var(--gold) 70%, transparent);
+  border-radius:0 8px 8px 0; white-space:pre-wrap; overflow-wrap:break-word}
+.nota-form{margin-top:10px}
+.nota-form textarea{font-family:var(--font-body); font-size:13.5px; line-height:1.5; resize:vertical; min-height:88px;
+  background:var(--panel-2); color:var(--ink); border:1px solid var(--line); border-radius:9px; padding:10px 12px; width:100%}
+.nota-form textarea:focus{outline:none; border-color:var(--accent)}
+.mini.com-nota{color:var(--gold)}
+.check-vazio{width:24px; height:24px}   /* segura a coluna do grid no modo modelo */
+
+/* ============ Novidades ============ */
+.nov-item{grid-template-columns:22px 1fr}
+.nov-check{width:18px; height:18px; margin-top:3px; accent-color:var(--accent); cursor:pointer}
+.nov-item .item-text{cursor:pointer; display:block}
+
 :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 
 @media (max-width:640px){
@@ -392,8 +424,12 @@ const sbClient = (window.supabase && sbLigado())
 const VOLTAR_KEY = "estudos-ia-voltar";
 let sessao = null, authPronto = false;
 
-const logado     = () => Boolean(sessao);
-const podeEditar = () => Boolean(sessao);
+const logado = () => Boolean(sessao);
+
+/* Editar exige conta. E, no modo modelo, exige também estar na tabela
+   admins — senão o banco recusaria a escrita e a tela teria oferecido um
+   botão que só sabe dar erro. */
+const podeEditar = () => Boolean(sessao) && (!modoModelo || souAdmin);
 
 function meuNome(){
   const u = sessao && sessao.user; if(!u) return "";
@@ -424,10 +460,21 @@ const PROG_KEY  = "estudos-ia-progresso-v1";  // ids concluídos — pessoal, po
 const MIGR_KEY  = "estudos-ia-migrado-v1";
 const MIGR_CONTA_KEY = "estudos-ia-migrado-conta-v1";
 const THEME_KEY = "estudos-ia-theme";
-let state, editingId = null, editingAba = null;
+let state, editingId = null, editingAba = null, editingNota = null;
 let carregando = true;   // primeiro fetch ainda não voltou
 let offline = false;     // o banco não respondeu (ou não foi configurado)
-let mensagens = [], muralTimer = null;
+let mensagens = [], muralTimer = null, muralCanal = null;
+
+/* Curadoria do modelo oficial (só para quem está na tabela admins). */
+let souAdmin = false, modoModelo = false;
+
+/* Novidades do modelo: null = nenhuma, ou não dá para saber ainda. */
+let novidades = null;
+
+/* O que este banco já tem. O supabase-evolucao.sql pode não ter rodado
+   ainda — e o site publicado não pode quebrar por causa disso. Cada
+   recurso novo consulta a flag correspondente e se desliga sozinho. */
+let temNota = false, temOrigem = false, colunasDetectadas = false;
 
 const clone = o => JSON.parse(JSON.stringify(o));
 const $ = s => document.querySelector(s);
@@ -473,19 +520,49 @@ async function salvarNoServidor(op){
 
 /* Traz temas + itens numa chamada só (embed do PostgREST) e devolve no MESMO
    formato que as telas já esperam — por isso stats/totals/viewHome não mudam. */
+/* Descobre, uma vez por sessão, o que o supabase-evolucao.sql já criou.
+   Duas requisições minúsculas no pior caso, uma no caso normal — e em
+   troca nenhuma tela precisa adivinhar se a coluna existe. */
+async function detectarColunas(){
+  if(colunasDetectadas) return;
+  colunasDetectadas = true;
+  try{
+    await sbFetch("itens?select=nota,origem_id&limit=1");
+    temNota = temOrigem = true; return;              // seções 5 e 6 rodaram
+  }catch(e){}
+  try{ await sbFetch("itens?select=nota&limit=1");      temNota   = true; }catch(e){ temNota   = false; }
+  try{ await sbFetch("itens?select=origem_id&limit=1"); temOrigem = true; }catch(e){ temOrigem = false; }
+}
+
+/* A tabela admins pode não existir ainda; nesse caso ninguém é admin e o
+   botão do modo modelo simplesmente não aparece. */
+async function verificarAdmin(){
+  souAdmin = false;
+  if(!logado()) return;
+  try{
+    const r = await sbFetch("admins?select=user_id&limit=1");   // o RLS já filtra para mim
+    souAdmin = Array.isArray(r) && r.length > 0;
+  }catch(e){ souAdmin = false; }
+}
+
 async function carregarTrilha(){
   /* Sem este filtro, quem está logado veria o modelo E a própria cópia — a
-     trilha apareceria duplicada, porque as policies permitem ler os dois. */
-  const filtro = logado() ? `user_id=eq.${sessao.user.id}` : "user_id=is.null";
-  const temas = await sbFetch(`temas?select=id,slug,nome,emoji,resumo,ordem,itens(id,texto,detalhe,ordem)&${filtro}&order=ordem`);
+     trilha apareceria duplicada, porque as policies permitem ler os dois.
+     No modo modelo o admin pede de propósito as linhas do modelo. */
+  const filtro = (logado() && !modoModelo) ? `user_id=eq.${sessao.user.id}` : "user_id=is.null";
+  const extraItem = (temNota?",nota":"") + (temOrigem?",origem_id":"");
+  const extraTema = temOrigem ? ",origem_id" : "";
+  const temas = await sbFetch(`temas?select=id,slug,nome,emoji,resumo,ordem${extraTema},itens(id,texto,detalhe,ordem${extraItem})&${filtro}&order=ordem`);
   return {
     meta: clone(SEED.meta),
     abas: temas.map(t=>({
       id: t.slug,          // continua sendo a rota (#fundamentos-ia)
       dbId: t.id,          // uuid, usado nos PATCH/DELETE
+      origemId: t.origem_id || null,   // de qual tema do modelo esta cópia nasceu
       nome: t.nome, emoji: t.emoji, resumo: t.resumo||"", ordem: t.ordem,
       itens: (t.itens||[]).sort((a,b)=>a.ordem-b.ordem).map(i=>({
-        id: i.id, texto: i.texto, detalhe: i.detalhe||"", ordem: i.ordem, feito: false
+        id: i.id, texto: i.texto, detalhe: i.detalhe||"", ordem: i.ordem, feito: false,
+        nota: i.nota || "", origemId: i.origem_id || null
       }))
     }))
   };
@@ -698,15 +775,118 @@ function calcularSequencia(dias, hoje){
   return n;
 }
 
+/* ---------------------- Novidades do modelo ---------------------- */
+/* O trigger copia o modelo uma vez, no cadastro. Sem isto aqui, uma
+   melhoria na trilha oficial nunca chegaria a quem já tem conta.
+
+   Como sabemos o que é novo: cada linha copiada guarda de qual linha do
+   modelo nasceu (origem_id). O que está no modelo e não é origem de nada
+   seu — e que você ainda não dispensou — é novidade. */
+async function carregarNovidades(st){
+  novidades = null;
+  if(!logado() || modoModelo || !temOrigem) return;   // sem a coluna, o recurso fica desligado
+  try{
+    const [modelo, dispensados] = await Promise.all([
+      sbFetch("temas?user_id=is.null&select=id,slug,nome,emoji,resumo,ordem,itens(id,texto,detalhe,ordem)&order=ordem"),
+      sbFetch("modelo_dispensado?select=origem_id")
+    ]);
+    const fora = new Set((dispensados||[]).map(d=>d.origem_id));
+
+    /* O que eu já tenho, indexado pela origem. */
+    const meusTemas = new Map();
+    const meusItens = new Set();
+    st.abas.forEach(a=>{
+      if(a.origemId) meusTemas.set(a.origemId, a);
+      a.itens.forEach(it=>{ if(it.origemId) meusItens.add(it.origemId); });
+    });
+
+    const temas = [], itens = [];
+    (modelo||[]).forEach(mt=>{
+      const meu = meusTemas.get(mt.id);
+      if(!meu){
+        /* Tema inteiro novo. Não listamos os itens dele um a um: eles vêm
+           junto quando você aceitar o tema. */
+        if(!fora.has(mt.id)) temas.push(mt);
+        return;
+      }
+      (mt.itens||[]).forEach(mi=>{
+        if(!meusItens.has(mi.id) && !fora.has(mi.id)) itens.push({ item: mi, destino: meu, tema: mt });
+      });
+    });
+
+    novidades = (temas.length || itens.length) ? { temas, itens } : null;
+  }catch(e){
+    /* Tabela ou coluna ausente, ou rede: o recurso some da tela sem
+       atrapalhar o resto do app. */
+    console.error("Novidades:", e);
+    novidades = null;
+  }
+}
+
+function contarNovidades(){ return novidades ? novidades.temas.length + novidades.itens.length : 0; }
+
+/* Traz para a sua trilha o que você marcou. Cada tema vira uma linha nova
+   com origem_id preenchido — é isso que impede a mesma novidade de ser
+   oferecida de novo no próximo F5. */
+async function adicionarNovidades(temasSel, itensSel){
+  const usados = new Set(state.abas.map(a=>a.id));
+  let ordem = state.abas.reduce((m,a)=>Math.max(m, a.ordem||0), 0);
+
+  for(const mt of temasSel){
+    const slug = slugUnico(mt.nome, null, usados);
+    const [row] = await sbFetch("temas", {
+      method:"POST", headers:{ "Prefer":"return=representation" },
+      body: JSON.stringify({ slug, nome:mt.nome, emoji:mt.emoji, resumo:mt.resumo||"", ordem: ++ordem, origem_id: mt.id })
+    });
+    const filhos = (mt.itens||[]).sort((a,b)=>a.ordem-b.ordem).map((i,k)=>({
+      tema_id: row.id, texto:i.texto, detalhe:i.detalhe||"", ordem:k+1, origem_id:i.id
+    }));
+    if(filhos.length) await sbFetch("itens", {method:"POST", body: JSON.stringify(filhos)});
+  }
+
+  /* Itens avulsos entram no fim do tema correspondente da SUA trilha. */
+  const porTema = new Map();
+  itensSel.forEach(n=>{
+    if(!porTema.has(n.destino.dbId)) porTema.set(n.destino.dbId, { destino:n.destino, itens:[] });
+    porTema.get(n.destino.dbId).itens.push(n.item);
+  });
+  for(const {destino, itens} of porTema.values()){
+    let o = destino.itens.reduce((m,i)=>Math.max(m, i.ordem||0), 0);
+    await sbFetch("itens", {method:"POST", body: JSON.stringify(itens.map(i=>({
+      tema_id: destino.dbId, texto:i.texto, detalhe:i.detalhe||"", ordem: ++o, origem_id: i.id
+    })))});
+  }
+}
+
+/* Dispensar é o que impede um tema apagado de propósito de reaparecer
+   para sempre. merge-duplicates porque dispensar duas vezes é inofensivo. */
+async function dispensarNovidades(ids){
+  if(!ids.length) return;
+  await sbFetch("modelo_dispensado", {
+    method:"POST",
+    headers:{ "Prefer":"resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(ids.map(origem_id=>({ origem_id })))
+  });
+}
+
 /* ---------------------------- Carga ---------------------------- */
 async function load(){
   if(sbLigado()){
     try{
+      await detectarColunas();
+      await verificarAdmin();
+      if(!souAdmin) modoModelo = false;   // perdeu o crachá (ou trocou de conta): sai do modo
       const st = await carregarTrilha();
       offline = false;
-      if(logado()){
+      if(logado() && !modoModelo){
         await carregarProgresso();
         await migrarProgressoParaConta(st);
+        await carregarNovidades(st);
+      } else if(logado()){
+        /* Modo modelo: o progresso é de itens da SUA cópia, e aqui na tela
+           estão os itens do modelo — ids diferentes. Não carregar nada é o
+           certo: melhor nenhum ✓ do que ✓ no item errado. */
+        progresso = new Set(); progressoEm = new Map(); novidades = null;
       } else {
         progresso = lerProgressoLocal();   // sair de uma conta não deixa o ✓ dela na tela
         progressoEm = new Map();           // nem as datas dela
@@ -723,7 +903,7 @@ async function load(){
   return aplicarProgresso(clone(SEED));
 }
 
-async function recarregar(){ state = await load(); editingId = null; editingAba = null; render(); }
+async function recarregar(){ state = await load(); editingId = null; editingAba = null; editingNota = null; render(); }
 
 /* --------------------------- Slugs --------------------------- */
 /* O slug é a rota (#fundamentos-ia). Tira acento, espaço e maiúscula para o
@@ -745,7 +925,12 @@ function slugUnico(nome, ignorarId, usados){
 /* Apaga tudo e reinsere a partir de um data.json. Os itens caem sozinhos
    pelo "on delete cascade" do supabase.sql. */
 async function substituirTrilha(d){
-  await sbFetch("temas?id=not.is.null", {method:"DELETE"});
+  /* Filtro explícito pelo dono, e não "id=not.is.null" confiando no RLS:
+     desde que existe admin, o RLS também autoriza apagar as linhas do
+     modelo — um DELETE sem dono apagaria a trilha oficial de todo mundo
+     junto com a sua. Dizer de quem é a linha custa nada e fecha a porta. */
+  const dono = logado() ? `user_id=eq.${sessao.user.id}` : "user_id=is.null";
+  await sbFetch(`temas?${dono}`, {method:"DELETE"});
   const usados = new Set();
   let ordem = 0;
   for(const a of d.abas){
@@ -786,19 +971,60 @@ async function carregarMensagens(){
   catch(e){ console.error("Mural:", e); }
 }
 
-/* Poll leve: só roda enquanto você está no #mural, e nunca redesenha por cima
-   de alguém digitando. */
-async function atualizarMural(){
-  if(route()!=="mural" || offline) return;
+/* Redesenhar por cima de quem está escrevendo apagaria o texto dele. Esta
+   guarda vale para o poll e para o tempo real — os dois podem chegar no
+   pior momento possível. */
+function digitandoNoMural(){
   const inp = document.querySelector("[data-form-msg] input[name='texto']");
-  if(inp && (inp.value.trim() || document.activeElement===inp)) return;
+  return Boolean(inp && (inp.value.trim() || document.activeElement===inp));
+}
+
+/* Poll: deixou de ser o mecanismo principal e virou rede de segurança, por
+   isso o intervalo folgado. WebSocket cai em rede móvel e ninguém avisa;
+   o poll cobre o buraco sem que se perceba. */
+async function atualizarMural(){
+  if(route()!=="mural" || offline || digitandoNoMural()) return;
   const antes = mensagens.length ? mensagens[0].id : null;
   await carregarMensagens();
   if((mensagens.length ? mensagens[0].id : null) !== antes) render();
 }
-function ajustarPollMural(){
+
+/* Tempo real. O SDK já está carregado por causa do login, então o custo
+   aqui é quase zero — foi o que mudou a decisão de não usá-lo no mural.
+   Se a tabela não estiver na publication supabase_realtime, o canal
+   simplesmente nunca recebe evento e o poll continua fazendo o trabalho. */
+function ligarRealtimeMural(){
+  if(!sbClient || muralCanal || offline) return;
+  try{
+    muralCanal = sbClient
+      .channel("mural")
+      .on("postgres_changes", { event:"INSERT", schema:"public", table:"mensagens" }, payload=>{
+        const m = payload && payload.new;
+        if(!m || !m.id) return;
+        if(mensagens.some(x=>x.id===m.id)) return;   // o meu próprio envio já entrou na lista
+        mensagens.unshift(m);
+        if(route()==="mural" && !digitandoNoMural()) render();
+      })
+      .subscribe();
+  }catch(e){ console.error("Realtime:", e); muralCanal = null; }
+}
+
+function desligarRealtimeMural(){
+  if(!muralCanal) return;
+  try{ sbClient.removeChannel(muralCanal); }catch(e){}
+  muralCanal = null;
+}
+
+/* Uma função só para os dois: entrar no #mural liga tempo real + poll,
+   sair desliga os dois. Assim não existe estado meio ligado. */
+function ajustarMural(){
   if(muralTimer){ clearInterval(muralTimer); muralTimer=null; }
-  if(route()==="mural" && !offline) muralTimer = setInterval(atualizarMural, 8000);
+  if(route()==="mural" && !offline){
+    ligarRealtimeMural();
+    muralTimer = setInterval(atualizarMural, 60000);
+  } else {
+    desligarRealtimeMural();
+  }
 }
 window.addEventListener("focus", atualizarMural);
 
@@ -814,7 +1040,7 @@ function route(){ const h=(location.hash||"").replace(/^#/,""); return h||"home"
 function go(id){ if(route()===id){ render(); } else { location.hash = id; } }
 
 window.addEventListener("hashchange", async ()=>{
-  editingId = null;
+  editingId = null; editingNota = null;
   const r = route();
   /* Tema novo que nunca chegou a ser salvo não sobrevive à navegação. */
   if(state) state.abas = state.abas.filter(a=>!a.novo || a.id===r);
@@ -823,7 +1049,7 @@ window.addEventListener("hashchange", async ()=>{
   window.scrollTo({top:0});
   if(editingAba===r) focusTema();   // o formulário só existe depois deste render
   if(r==="mural"){ await carregarMensagens(); render(); }
-  ajustarPollMural();
+  ajustarMural();
 });
 
 /* ============================ Componentes ============================ */
@@ -866,9 +1092,11 @@ function viewHome(){
     <div class="bar"><span class="brandmini">📚 Trilha de Estudos</span><span class="spacer"></span>${contaBtn()}${themeBtn()}</div>
 
     <div class="home-head">
-      <div class="eyebrow">${logado()?"sua trilha":"trilha oficial"}</div>
+      <div class="eyebrow">${modoModelo?"modelo oficial":logado()?"sua trilha":"trilha oficial"}</div>
       <h1>IA &amp; Desenvolvimento</h1>
-      <p>${logado()
+      <p>${modoModelo
+        ? "Você está editando o modelo que todo mundo recebe ao criar conta. Ninguém perde o que já tem: para quem já tem conta, isto vira uma novidade a aceitar."
+        : logado()
         ? "Esta trilha é sua: edite à vontade que ninguém mais vê suas mudanças. O progresso acompanha você em qualquer aparelho."
         : "Escolha por onde começar. Você está vendo a trilha oficial — entre para ganhar uma cópia sua, editável."}</p>
     </div>
@@ -892,8 +1120,9 @@ function viewHome(){
 
     <div class="bar" style="margin-top:26px; justify-content:center; flex-wrap:wrap">
       <button class="ghost" data-action="export">⤓ Exportar</button>
-      ${podeEditar()?`<button class="ghost" data-action="import">⤒ Importar</button>`:""}
-      <button class="ghost" data-action="restore">↺ Zerar meu progresso</button>
+      ${podeEditar() && !modoModelo?`<button class="ghost" data-action="import">⤒ Importar</button>`:""}
+      ${modoModelo?"":`<button class="ghost" data-action="restore">↺ Zerar meu progresso</button>`}
+      ${souAdmin?`<button class="ghost" data-action="modo-modelo">${modoModelo?"↩ voltar à minha trilha":"🛠 editar modelo oficial"}</button>`:""}
     </div>
     <p class="foot">${logado()
       ? `Sua trilha e seu progresso ficam na sua conta Google e acompanham você em qualquer aparelho.`
@@ -917,12 +1146,108 @@ function convite(texto){
 
 function topBar(){ return `<div class="bar"><button class="ghost back" data-action="voltar">← Voltar</button><span class="spacer"></span>${contaBtn()}${themeBtn()}</div>`; }
 
+/* Sem esta faixa é fácil editar o modelo achando que é a sua trilha — as
+   duas telas são idênticas. Ela fica no topo de TODAS as telas enquanto o
+   modo estiver ligado, não só na home. */
+function faixaModelo(){
+  if(!modoModelo) return "";
+  return `<div class="faixa modelo">
+    <span>🛠 <b>Editando a trilha oficial.</b> Vale para quem criar conta a partir de agora — quem já tem conta recebe como <i>novidade</i>. Seu progresso não aparece aqui.</span>
+    <button class="btn" data-action="modo-modelo">↩ voltar à minha trilha</button>
+  </div>`;
+}
+
+function faixaNovidades(){
+  const n = contarNovidades();
+  if(!n || modoModelo || route()!=="home") return "";
+  return `<div class="faixa nov">
+    <span>✨ <b>${n} novidade${n===1?"":"s"}</b> na trilha oficial que você ainda não tem.</span>
+    <button class="btn primary" data-go="novidades">Ver o que mudou</button>
+  </div>`;
+}
+
+/* Tela das novidades: lista com seleção, e duas saídas — trazer ou
+   dispensar. Dispensar é definitivo de propósito; é o que impede um tema
+   que você apagou de propósito de reaparecer para sempre. */
+function viewNovidades(){
+  if(!novidades){
+    return `<div class="wrap">${topBar()}
+      <div class="sec-head"><div class="eyebrow">novidades</div><h2>✨ Nada novo por aqui</h2>
+        <p>Sua trilha já tem tudo o que existe na oficial. Quando ela ganhar um tema ou um item, aparece aqui.</p></div>
+      <div class="empty-state"><div class="big">✅</div><p>Você está em dia.</p></div></div>`;
+  }
+
+  const linhaTema = mt=>`<li class="item nov-item">
+    <input type="checkbox" class="nov-check" data-nov="${mt.id}" data-tipo="tema" id="nov-${mt.id}" checked>
+    <div class="item-body">
+      <label class="item-text" for="nov-${mt.id}">${mt.emoji} ${esc(mt.nome)}</label>
+      <p class="item-detail">${esc(mt.resumo||"")}</p>
+      <span class="chip">tema novo · ${(mt.itens||[]).length} ${(mt.itens||[]).length===1?"item":"itens"}</span>
+    </div></li>`;
+
+  const linhaItem = n=>`<li class="item nov-item">
+    <input type="checkbox" class="nov-check" data-nov="${n.item.id}" data-tipo="item" id="nov-${n.item.id}" checked>
+    <div class="item-body">
+      <label class="item-text" for="nov-${n.item.id}">${esc(n.item.texto)}</label>
+      ${n.item.detalhe?`<p class="item-detail">${esc(n.item.detalhe)}</p>`:""}
+      <span class="chip">${n.destino.emoji} ${esc(n.destino.nome)}</span>
+    </div></li>`;
+
+  const blocos =
+    (novidades.temas.length ? `<div class="section-label">temas novos</div>
+      <ul class="list">${novidades.temas.map(linhaTema).join("")}</ul>` : "") +
+    (novidades.itens.length ? `<div class="section-label">itens novos em temas que você já tem</div>
+      <ul class="list">${novidades.itens.map(linhaItem).join("")}</ul>` : "");
+
+  return `<div class="wrap">
+    ${topBar()}
+    <div class="sec-head">
+      <div class="eyebrow">novidades — ${contarNovidades()}</div>
+      <h2>✨ O que mudou na trilha oficial</h2>
+      <p>Sua trilha é uma cópia sua: ela não muda sozinha. Escolha o que quer trazer. O que você <b>dispensar</b> não é oferecido de novo.</p>
+    </div>
+    ${blocos}
+    <div class="bar" style="margin-top:20px; flex-wrap:wrap">
+      <button class="btn primary" data-action="nov-add">＋ Adicionar selecionados</button>
+      <button class="btn" data-action="nov-dispensar">✕ Dispensar selecionados</button>
+      <span class="spacer"></span>
+      <button class="ghost" data-action="nov-todos">Marcar todos</button>
+      <button class="ghost" data-action="nov-nenhum">Desmarcar todos</button>
+    </div>
+    <p class="foot">Adicionar cria os itens na <b>sua</b> trilha, sem tocar nas suas anotações nem no seu progresso.</p>
+  </div>`;
+}
+
 /* O selo do item concluído. Sem data (visitante, ou item marcado antes de a
    coluna existir) ele volta a ser exatamente o que era — nada quebra. */
 function selo(id){
   const iso = progressoEm.get(id);
   const dt  = iso ? diaCurto(iso) : "";
   return `<span class="pill-done">✓ pronto${dt?` · ${dt}`:""}</span>`;
+}
+
+/* A nota fica na SUA cópia. Mesmo padrão do editingId já usado para editar
+   item e tema: um só id aberto por vez, e o formulário nasce no render. */
+function blocoNota(it){
+  if(editingNota === it.id){
+    return `<form class="edit-form nota-form" data-form-nota="${it.id}">
+      <textarea name="nota" maxlength="2000" rows="4" placeholder="O que você aprendeu, links, dúvidas…">${esc(it.nota||"")}</textarea>
+      <div class="row">
+        <button type="button" class="btn" data-action="nota-cancel">Cancelar</button>
+        <button type="submit" class="btn primary">Salvar nota</button>
+      </div>
+    </form>`;
+  }
+  return it.nota ? `<p class="item-nota">${esc(it.nota)}</p>` : "";
+}
+
+function acoesItem(it){
+  if(!podeEditar()) return `<span></span>`;
+  /* O ponto no botão diz que existe nota sem obrigar a abrir para descobrir. */
+  const nota = (temNota && !modoModelo)
+    ? `<button class="mini ${it.nota?"com-nota":""}" data-action="nota" title="Anotações">📝${it.nota?" •":""}</button>`
+    : "";
+  return `<div class="item-actions">${nota}<button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>`;
 }
 
 function viewStage(idx){
@@ -937,13 +1262,16 @@ function viewStage(idx){
         </form></li>`;
     }
     return `<li class="item ${it.feito?'is-done':''}" data-id="${it.id}">
-      <button class="check" data-action="toggle" aria-pressed="${it.feito}" aria-label="Marcar como concluído">${it.feito?"✓":""}</button>
+      ${modoModelo
+        ? `<span class="check-vazio" aria-hidden="true"></span>`
+        : `<button class="check" data-action="toggle" aria-pressed="${it.feito}" aria-label="Marcar como concluído">${it.feito?"✓":""}</button>`}
       <div class="item-body">
         <p class="item-text">${esc(it.texto)}</p>
         ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
         ${it.feito?selo(it.id):""}
+        ${blocoNota(it)}
       </div>
-      ${podeEditar()?`<div class="item-actions"><button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>`:`<span></span>`}
+      ${acoesItem(it)}
     </li>`;
   }).join("");
 
@@ -967,7 +1295,7 @@ function viewStage(idx){
         <h2>${a.emoji} ${esc(a.nome)}</h2>
         <p>${esc(a.resumo)}</p>
         <div class="prog-inline"><span class="track"><i style="width:${s.pct}%"></i></span><span class="pct">${s.pct}%</span>
-          ${s.t ? `<button class="mini" data-action="toggle-all" data-marcar="${s.d===s.t?"0":"1"}">${s.d===s.t?"↺ desmarcar tudo":"✓ concluir tudo"}</button>` : ""}
+          ${s.t && !modoModelo ? `<button class="mini" data-action="toggle-all" data-marcar="${s.d===s.t?"0":"1"}">${s.d===s.t?"↺ desmarcar tudo":"✓ concluir tudo"}</button>` : ""}
         </div>
         ${podeEditar()?`<div class="tema-actions">
           <button class="mini" data-action="tema-edit">✎ editar tema</button>
@@ -995,7 +1323,7 @@ function viewAfazer(){
     <div class="eyebrow">a fazer — ${pend.length} pendente${pend.length===1?"":"s"}</div>
     <h2>✅ Tarefas a fazer</h2>
     <p>Todos os itens ainda não concluídos, reunidos aqui. Marque para concluir ou clique em <b>abrir</b> para ir ao estágio.</p>
-    ${pend.length?`<div class="prog-inline"><button class="mini" data-action="toggle-all" data-marcar="1">✓ concluir os ${pend.length} pendentes</button></div>`:""}
+    ${pend.length && !modoModelo?`<div class="prog-inline"><button class="mini" data-action="toggle-all" data-marcar="1">✓ concluir os ${pend.length} pendentes</button></div>`:""}
   </div>`;
 
   let body;
@@ -1005,7 +1333,9 @@ function viewAfazer(){
   } else {
     body = `<ul class="list">${pend.map(({aba,it})=>`
       <li class="item" data-id="${it.id}">
-        <button class="check" data-action="toggle" aria-pressed="false" aria-label="Marcar como concluído"></button>
+        ${modoModelo
+          ? `<span class="check-vazio" aria-hidden="true"></span>`
+          : `<button class="check" data-action="toggle" aria-pressed="false" aria-label="Marcar como concluído"></button>`}
         <div class="item-body">
           <p class="item-text">${esc(it.texto)}</p>
           ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
@@ -1168,8 +1498,9 @@ function render(){
   else if(r==="afazer") html = viewAfazer();
   else if(r==="resumo") html = viewResumo();
   else if(r==="mural") html = viewMural();
+  else if(r==="novidades") html = viewNovidades();
   else { const idx = state.abas.findIndex(a=>a.id===r); if(idx<0){ location.hash=""; return; } html = viewStage(idx); }
-  $("#app").innerHTML = html + avisoOffline();
+  $("#app").innerHTML = faixaModelo() + faixaNovidades() + html + avisoOffline();
 }
 
 /* ============================ Ações ============================ */
@@ -1306,13 +1637,75 @@ document.addEventListener("click", async e=>{
       const aba=state.abas.find(a=>a.id===route()); if(!aba) break;
       const nid=uid();
       const proxOrdem = aba.itens.reduce((m,i)=>Math.max(m, i.ordem||0), 0) + 1;
-      aba.itens.push({id:nid, texto:"", detalhe:"", feito:false, novo:true, ordem:proxOrdem});
+      aba.itens.push({id:nid, texto:"", detalhe:"", feito:false, novo:true, ordem:proxOrdem, nota:""});
       editingId=nid; render(); focusEdit(); break;
+    }
+
+    /* ------------------------- Anotações ------------------------- */
+    case "nota": editingNota = (editingNota===id ? null : id); editingId=null; render(); focusNota(); break;
+    case "nota-cancel": editingNota = null; render(); break;
+
+    /* ---------------------- Modelo oficial ---------------------- */
+    case "modo-modelo":{
+      if(!souAdmin) break;
+      modoModelo = !modoModelo;
+      editingId = editingAba = editingNota = null;
+      carregando = true; render();
+      state = await load();
+      carregando = false;
+      go("home"); render();
+      break;
+    }
+
+    /* ------------------------ Novidades ------------------------ */
+    case "nov-todos":
+    case "nov-nenhum":
+      document.querySelectorAll("[data-nov]").forEach(c=>{ c.checked = (action==="nov-todos"); });
+      break;
+
+    case "nov-add":
+    case "nov-dispensar":{
+      const marcados = [...document.querySelectorAll("[data-nov]")].filter(c=>c.checked);
+      if(!marcados.length){ alert("Selecione ao menos uma novidade."); break; }
+      const ids = new Set(marcados.map(c=>c.dataset.nov));
+
+      if(action==="nov-dispensar"){
+        if(!confirm(`Dispensar ${ids.size} novidade${ids.size===1?"":"s"}?\n\nElas não serão oferecidas de novo, nem depois de recarregar.`)) break;
+        carregando = true; render();
+        await salvarNoServidor(()=> dispensarNovidades([...ids]));
+      } else {
+        const temasSel = novidades.temas.filter(t=>ids.has(t.id));
+        const itensSel = novidades.itens.filter(n=>ids.has(n.item.id));
+        carregando = true; render();
+        await salvarNoServidor(()=> adicionarNovidades(temasSel, itensSel));
+      }
+      state = await load();
+      carregando = false;
+      /* Sem novidade restante não há tela para ficar: volta para a trilha. */
+      go(contarNovidades() ? "novidades" : "home");
+      render();
+      break;
     }
   }
 });
 
 document.addEventListener("submit", async e=>{
+  /* ------------------------- Nota ------------------------- */
+  const fn = e.target.closest("[data-form-nota]");
+  if(fn){
+    e.preventDefault();
+    const f = findItem(fn.dataset.formNota);
+    if(!f){ editingNota=null; render(); return; }
+    /* Corta no limite do check constraint do banco (2000). */
+    const nota = fn.nota.value.trim().slice(0,2000);
+    if(f.it.novo){ alert("Salve o item antes de anotar."); return; }
+    f.it.nota = nota; editingNota = null; render();
+    await salvarNoServidor(()=> sbFetch(`itens?id=eq.${f.it.id}`, {
+      method:"PATCH", body: JSON.stringify({ nota })
+    }));
+    return;
+  }
+
   /* ------------------------- Tema ------------------------- */
   const ft = e.target.closest("[data-form-tema]");
   if(ft){
@@ -1335,7 +1728,10 @@ document.addEventListener("submit", async e=>{
       await salvarNoServidor(async ()=>{
         const [row] = await sbFetch("temas", {
           method:"POST", headers:{ "Prefer":"return=representation" },
-          body: JSON.stringify({ slug, nome, emoji, resumo, ordem: aba.ordem })
+          /* user_id: null explícito no modo modelo. A coluna tem
+             "default auth.uid()", então omitir carimbaria o admin como
+             dono e a linha viraria a cópia dele em vez do modelo. */
+          body: JSON.stringify({ slug, nome, emoji, resumo, ordem: aba.ordem, ...(modoModelo?{user_id:null}:{}) })
         });
         aba.dbId = row.id;
       });
@@ -1391,7 +1787,7 @@ document.addEventListener("submit", async e=>{
       const [row] = await sbFetch("itens", {
         method:"POST",
         headers:{ "Prefer":"return=representation" },
-        body: JSON.stringify({ tema_id:f.aba.dbId, texto, detalhe, ordem:f.it.ordem })
+        body: JSON.stringify({ tema_id:f.aba.dbId, texto, detalhe, ordem:f.it.ordem, ...(modoModelo?{user_id:null}:{}) })
       });
       f.it.id = row.id;   // troca o id temporário pelo uuid que o banco gerou
       render();
@@ -1405,6 +1801,9 @@ document.addEventListener("submit", async e=>{
 
 function focusEdit(){ requestAnimationFrame(()=>{ const i=document.querySelector(".edit-form input[name='texto']"); if(i){ i.focus(); i.select(); } }); }
 function focusTema(){ requestAnimationFrame(()=>{ const i=document.querySelector("[data-form-tema] input[name='nome']"); if(i){ i.focus(); i.select(); } }); }
+/* Sem select(): diferente do texto do item, uma nota já escrita costuma ser
+   continuada, não substituída — selecionar tudo faria a próxima tecla apagá-la. */
+function focusNota(){ requestAnimationFrame(()=>{ const t=document.querySelector(".nota-form textarea"); if(t){ t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }); }
 
 function exportJSON(){
   const blob = new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
@@ -1455,6 +1854,17 @@ function applyTheme(t){ document.documentElement.setAttribute("data-theme", t); 
 function toggleTheme(){ const next = curTheme()==="dark"?"light":"dark"; try{ localStorage.setItem(THEME_KEY, next); }catch(e){} applyTheme(next); render(); }
 
 /* ============================ Init ============================ */
+/* Service worker só em origem segura. Sob file:// ele nem existe, e o
+   duplo clique no arquivo precisa continuar funcionando — registrar ali
+   só encheria o console de erro. localhost entra junto porque o navegador
+   o trata como seguro, e é assim que dá para testar o PWA antes do push. */
+if("serviceWorker" in navigator &&
+   (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")){
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("./sw.js").catch(e=>console.error("SW:", e));
+  });
+}
+
 applyTheme((()=>{ try{ return localStorage.getItem(THEME_KEY)||"dark"; }catch(e){ return "dark"; } })());
 render();   // pinta o "carregando" antes do primeiro fetch
 
@@ -1484,7 +1894,7 @@ render();   // pinta o "carregando" antes do primeiro fetch
   carregando = false;
   if(route()==="mural") await carregarMensagens();
   render();
-  ajustarPollMural();
+  ajustarMural();
   authPronto = true;
 })();
 </script>

@@ -18,7 +18,11 @@ dependência de CDN. A diferença é que agora ele conversa com um banco no **Su
 - **Editar, adicionar e excluir** itens.
 - **Gerenciar temas** — criar, renomear, trocar emoji/resumo, reordenar e excluir.
 - **Substituir a trilha inteira** importando um `data.json`.
-- **Mural de recados** compartilhado com todo mundo que abrir a página.
+- **Mural de recados** compartilhado, **em tempo real** — recado enviado numa janela aparece
+  na outra na hora.
+- **Anotações por item** (📝), com o que você aprendeu, links e dúvidas.
+- **Novidades da trilha oficial**: quando ela melhora, você escolhe o que trazer.
+- **Instalar no celular** — é um PWA, abre em tela cheia pelo ícone.
 - **Tema claro/escuro** e layout responsivo.
 
 ## 👤 Contas
@@ -96,12 +100,49 @@ As duas formas funcionam — o Supabase aceita requisições de páginas abertas
 
 ## 🛠️ Como editar a trilha oficial
 
-As policies impedem escrita nas linhas com `user_id` nulo — **inclusive para você**, pelo
-site. Isso é proposital: não existe "modo admin" escondido no HTML público.
+Quem estiver na tabela `admins` ganha o botão **🛠 editar modelo oficial** na home. Ele
+mostra a trilha oficial no lugar da sua, com uma faixa amarela no topo para você nunca
+confundir as duas. Sair é o botão **↩ voltar à minha trilha**.
 
-Para curar o modelo, use o **Table Editor** ou o **SQL Editor** do Supabase, onde a chave
-`service_role` do painel passa por cima do RLS. Quem criar conta a partir daí recebe a versão
-nova.
+Entrar para a lista de admins **não acontece pelo site** — não existe policy de escrita em
+`admins`. É uma linha no SQL Editor do Supabase:
+
+```sql
+insert into public.admins (user_id)
+select id from auth.users where email = 'seu-email@gmail.com';
+```
+
+No modo modelo o progresso some da tela de propósito: os ✓ são de itens da *sua* cópia, que
+têm outros ids. Melhor nenhum ✓ do que ✓ no item errado.
+
+## ✨ Novidades do modelo
+
+Sua trilha é uma cópia e **não muda sozinha**. Quando a oficial ganha um tema ou um item, a
+home mostra uma faixa e a tela `#novidades` lista o que falta, com seleção:
+
+- **Adicionar selecionados** copia para a sua trilha, sem tocar no seu progresso nem nas
+  suas anotações.
+- **Dispensar selecionados** é definitivo: aquilo não é mais oferecido, nem depois do F5. É
+  o que impede um tema que você apagou de propósito de reaparecer para sempre.
+
+Cada linha copiada guarda de qual linha do modelo nasceu (`origem_id`) — é assim que o app
+sabe o que você já tem.
+
+## 📝 Anotações
+
+Cada item tem um botão **📝**. A nota fica na **sua** cópia, aparece abaixo do item e o botão
+ganha um ponto quando existe nota, para você não precisar abrir para descobrir. Limite de
+2000 caracteres, garantido pelo banco.
+
+## 📱 Instalar no celular
+
+O app é um PWA. No Chrome do Android: menu → **Instalar app**. No iPhone, Safari →
+**Compartilhar** → **Adicionar à Tela de Início**.
+
+Instalado, ele abre em tela cheia, sem barra de navegador. O service worker guarda só o
+**casco** (HTML, ícones, manifest) — **dados nunca**: toda chamada ao Supabase passa direto
+para a rede. E o documento é *network-first*, então um `git push` novo aparece no próximo
+abrir, sem "por que meu app não atualizou?".
 
 ## 🌿 Fluxo com o git
 
@@ -118,12 +159,21 @@ repositório é só backup/semente.
 
 ```
 estudos-ia/
-  index.html           → o app inteiro (HTML + CSS + JS + semente do modo local)
-  supabase.sql         → schema base: 3 tabelas, RLS e seed dos 8 temas
-  supabase-contas.sql  → migração para contas: dono, progresso, policies e trigger
-  data.json            → backup versionável (use Exportar/Importar)
-  README.md            → este arquivo
+  index.html             → o app inteiro (HTML + CSS + JS + semente do modo local)
+  supabase.sql           → schema base: 3 tabelas, RLS e seed dos 8 temas
+  supabase-contas.sql    → migração para contas: dono, progresso, policies e trigger
+  supabase-evolucao.sql  → realtime do mural, admins, novidades do modelo e notas
+  manifest.json          → PWA: nome, cores e ícones
+  sw.js                  → service worker (só o casco; nunca os dados)
+  icon-192.png           → ícone do app
+  icon-512.png           → ícone do app (e maskable)
+  data.json              → backup versionável (use Exportar/Importar)
+  README.md              → este arquivo
   .gitignore
 ```
+
+Os três `.sql` rodam **em ordem** e só uma vez cada: `supabase.sql` →
+`supabase-contas.sql` → `supabase-evolucao.sql`. Nunca voltar atrás — o primeiro recria
+policies abertas.
 
 Feito para estudar com prazer. Bons estudos! 🚀

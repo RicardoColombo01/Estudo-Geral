@@ -20,6 +20,8 @@ Login: **Google OAuth**. Dono: RicardoColombo01.
 - Visitante sem login: lê a trilha oficial e o mural, não escreve nada
 - Gestão de temas: criar, editar, reordenar, excluir, substituir por JSON
 - Concluir/desmarcar um tema inteiro
+- Data no selo do item, sequência de dias e mapa de atividade de 12 semanas *(Fase 2,
+  commit `6438a72` — no ar, ainda não conferido pelo Ricardo no navegador)*
 
 ## A regra que organiza tudo
 
@@ -45,6 +47,7 @@ Três decisões fazem o cliente quase não precisar saber disso:
 | Auth | `sbClient` (SDK), `entrar()`, `sair()`, `logado()`, `podeEditar()`, `meuNome()` |
 | Carga | `load()`, `carregarTrilha()`, `carregarProgresso()`, `recarregar()` |
 | Progresso | `progresso` (Set), `marcarItem()`, `aplicarProgresso()`, `sincProgresso()` |
+| Datas | `progressoEm` (Map id→ISO), `chaveDia()`, `diasDeEstudo()`, `calcularSequencia()`, `selo()` |
 | Migrações | `migrarProgressoAntigo()`, `migrarProgressoParaConta()` — casam por **texto** |
 | Telas | `viewHome()`, `viewStage()`, `viewAfazer()`, `viewResumo()`, `viewMural()`, `render()` |
 | Ações | um `click` delegado com `switch(action)`, um `submit` com 3 ramos |
@@ -81,6 +84,13 @@ Três decisões fazem o cliente quase não precisar saber disso:
   devolveria `#access_token=` e atropelaria o `route()`.
 - **SDK via `<script src>` UMD, nunca `type="module"`** — módulo ES quebra o `file://`, e o
   duplo clique no arquivo precisa continuar funcionando.
+- **`concluido_em` é `timestamptz`, guardado em UTC.** Agrupar conclusão por dia tem que usar
+  o fuso do aparelho (`chaveDia()`): estudar às 21h em SP já é o dia seguinte em UTC, e
+  contar por UTC parte uma noite de estudo em dois dias — sequência inflada, sem erro nenhum.
+- **O upsert do progresso preserva a data.** `Prefer: resolution=merge-duplicates` manda só
+  `item_id` e `user_id`, então o `ON CONFLICT` não toca em `concluido_em`. Por isso
+  `marcarItem()` só grava data otimista quando ainda não existe uma — sobrescrever faria a
+  tela discordar do banco até o próximo F5.
 
 ## Verificação obrigatória depois de mexer em policy
 
@@ -100,8 +110,19 @@ Checar sintaxe do JS sem abrir navegador: extrair o último bloco `<script>` e `
 
 **7 melhorias aprovadas e detalhadas** em
 `C:\Users\ricar\.claude\plans\al-m-disso-quero-que-imperative-allen.md`:
-publicar consentimento do Google · datas e sequência · mural em tempo real · admin do modelo ·
-puxar novidades do modelo · anotações por item · PWA.
+
+| Fase | | Estado |
+|---|---|---|
+| 1 | publicar consentimento do Google | pendente — **ele faz**, no Google Cloud Console |
+| 2 | datas e sequência | ✅ feita em 2026-07-28, commit `6438a72` |
+| 3 | mural em tempo real | pendente |
+| 4 | admin do modelo oficial | pendente |
+| 5 | puxar novidades do modelo | pendente |
+| 6 | anotações por item | pendente |
+| 7 | PWA | pendente |
+
+Fases 3 a 7 precisam de `supabase-evolucao.sql` (ainda não existe). Ordem sugerida no plano:
+a 4 vem antes da 5 de propósito.
 
 > ⚠️ **NÃO EXECUTAR NENHUMA FASE SEM O RICARDO AUTORIZAR.** Ele pediu explicitamente para
 > deixar pronto e só realizar quando voltar e mandar. Uma fase por vez, commit próprio.

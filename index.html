@@ -185,6 +185,24 @@ button{font-family:inherit}
 .empty-state{text-align:center; padding:40px 20px; color:var(--muted)}
 .empty-state .big{font-size:40px; margin-bottom:10px}
 
+/* ============ Gestão de temas ============ */
+.tema-actions{display:flex; gap:4px; margin-top:14px; flex-wrap:wrap}
+.mini[disabled]{opacity:.3; cursor:default}
+.mini[disabled]:hover{color:var(--muted); background:transparent; border-color:transparent}
+.row-tema{display:flex; gap:8px}
+.row-tema input[name="emoji"]{width:64px; text-align:center; font-size:18px; flex:none}
+.card.novo{border-style:dashed; align-items:center; justify-content:center; text-align:center}
+.card.novo .c-name{margin-top:0}
+
+/* ============ Mural ============ */
+.msg-form{margin-bottom:22px}
+.msgs{gap:8px}
+.msg{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:13px 15px; list-style:none}
+.msg-head{display:flex; align-items:baseline; gap:10px; margin-bottom:5px}
+.msg-head b{font-size:13.5px; color:var(--accent)}
+.msg-head time{font-family:var(--font-mono); font-size:10.5px; color:var(--muted)}
+.msg-body{margin:0; font-size:14px; color:var(--ink); overflow-wrap:break-word; white-space:pre-wrap}
+
 :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 
 @media (max-width:640px){
@@ -302,22 +320,237 @@ const CRONO = [
   ["Sem 10","Revisão + aprofundar o que ficou fraco"]
 ];
 
+/* ========================= Supabase (config) ========================= */
+/* A anon key é pública de propósito: ela só diz "sou um visitante anônimo".
+   Quem protege o banco são as policies de RLS do supabase.sql, não o segredo
+   da chave. NUNCA cole aqui a service_role/secret — essa ignora o RLS. */
+const SB = {
+  url: "https://zezzpdhjjgqavtlxmgsp.supabase.co",
+  key: "sb_publishable_WJPNUpcwQqyZDkBq4ofRkg_n7A-YHi_"   // anon/publishable — pública de propósito
+};
+const sbLigado = () => Boolean(SB.url && SB.key);
+
 /* ============================ Estado ============================ */
-const STORE_KEY = "estudos-ia-data-v1";
+const STORE_KEY = "estudos-ia-data-v1";       // fallback offline (formato antigo)
+const PROG_KEY  = "estudos-ia-progresso-v1";  // ids concluídos — pessoal, por navegador
+const MIGR_KEY  = "estudos-ia-migrado-v1";
 const THEME_KEY = "estudos-ia-theme";
-let state, editingId = null;
+const APELIDO_KEY = "estudos-ia-apelido";
+let state, editingId = null, editingAba = null;
+let carregando = true;   // primeiro fetch ainda não voltou
+let offline = false;     // o banco não respondeu (ou não foi configurado)
+let mensagens = [], muralTimer = null;
 
 const clone = o => JSON.parse(JSON.stringify(o));
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid = () => "x"+Math.abs(Date.now()+Math.floor(performance.now()*1000)).toString(36);
 
-function load(){
-  try{ const raw = localStorage.getItem(STORE_KEY);
-    if(raw){ const d = JSON.parse(raw); if(d && Array.isArray(d.abas)) return d; }
-  }catch(e){}
-  return clone(SEED);
+/* --------------------------- Rede --------------------------- */
+/* Porta única de saída: todo acesso ao banco passa por aqui, então os headers
+   de autenticação ficam num lugar só. */
+async function sbFetch(path, opts={}){
+  const r = await fetch(`${SB.url}/rest/v1/${path}`, {
+    ...opts,
+    headers:{
+      "apikey": SB.key,
+      "Authorization": `Bearer ${SB.key}`,
+      "Content-Type": "application/json",
+      ...(opts.headers||{})
+    }
+  });
+  if(!r.ok) throw new Error(`${r.status} — ${await r.text()}`);
+  return r.status===204 ? null : r.json();
 }
+
+/* Envia uma escrita ao servidor. Se falhar, avisa e recarrega do banco para a
+   tela não ficar mostrando uma mentira otimista. */
+async function salvarNoServidor(op){
+  if(offline){ persist(); return true; }
+  try{ await op(); return true; }
+  catch(e){
+    console.error(e);
+    alert("Não consegui salvar no servidor.\n\n"+e.message);
+    await recarregar();
+    return false;
+  }
+}
+
+/* Traz temas + itens numa chamada só (embed do PostgREST) e devolve no MESMO
+   formato que as telas já esperam — por isso stats/totals/viewHome não mudam. */
+async function carregarTrilha(){
+  const temas = await sbFetch("temas?select=id,slug,nome,emoji,resumo,ordem,itens(id,texto,detalhe,ordem)&order=ordem");
+  return {
+    meta: clone(SEED.meta),
+    abas: temas.map(t=>({
+      id: t.slug,          // continua sendo a rota (#fundamentos-ia)
+      dbId: t.id,          // uuid, usado nos PATCH/DELETE
+      nome: t.nome, emoji: t.emoji, resumo: t.resumo||"", ordem: t.ordem,
+      itens: (t.itens||[]).sort((a,b)=>a.ordem-b.ordem).map(i=>({
+        id: i.id, texto: i.texto, detalhe: i.detalhe||"", ordem: i.ordem, feito: false
+      }))
+    }))
+  };
+}
+
+/* ------------------------- Progresso (local) ------------------------- */
+/* O tema é um fato compartilhado; o ✓ é uma opinião pessoal. Por isso ele mora
+   aqui, no navegador de cada visitante, e não no banco. */
+let progresso = (()=>{
+  try{ const a = JSON.parse(localStorage.getItem(PROG_KEY)||"[]"); return new Set(Array.isArray(a)?a:[]); }
+  catch(e){ return new Set(); }
+})();
+
+function salvarProgresso(){ try{ localStorage.setItem(PROG_KEY, JSON.stringify([...progresso])); }catch(e){} }
+function marcarItem(id, feito){ feito ? progresso.add(id) : progresso.delete(id); salvarProgresso(); }
+function aplicarProgresso(st){ st.abas.forEach(a=>a.itens.forEach(it=>{ it.feito = progresso.has(it.id); })); return st; }
+
+/* =====================================================================
+   👉 RICARDO — escreva esta função (5 a 8 linhas).
+
+   É ela que dá vida ao botão "✓ concluir tudo" / "↺ desmarcar tudo".
+   Todo o resto já está pronto: o botão existe, o clique chega aqui, e
+   depois que você mexer no Set eu re-sincronizo a tela sozinho.
+
+   Parâmetros:
+     aba    → { id, nome, itens:[ {id, texto, detalhe, feito} ] }
+     marcar → true  = concluir tudo
+              false = desmarcar tudo
+
+   Ferramenta pronta:
+     marcarItem(id, true|false)   → adiciona/remove do Set e já salva
+
+   A decisão é sua, e ela tem consequência de verdade:
+
+   1. "Desmarcar tudo" deve mesmo apagar TODO o progresso do tema? Se você
+      concluiu 7 itens ao longo de 3 semanas e clica sem querer, perdeu.
+      Uma alternativa é o botão só ADICIONAR (concluir os pendentes) e nunca
+      remover — mais seguro, porém sem volta pelo mesmo caminho.
+
+   2. Vale ignorar os itens que estão em edição (it.novo === true)? Eles
+      ainda não existem no banco.
+===================================================================== */
+function marcarTodosDoTema(aba, marcar){
+  aba.itens.forEach(it=>{
+    if(it.novo) return;            // item em edição: ainda não existe no banco
+    marcarItem(it.id, marcar);     // marcar=true conclui, false desmarca
+  });
+}
+
+/* Roda uma vez: recupera o que você já tinha concluído no formato antigo.
+   Casa por TEXTO, não por id — os ids do banco são uuids novos. */
+function migrarProgressoAntigo(st){
+  if(localStorage.getItem(MIGR_KEY)) return;
+  try{
+    const d = JSON.parse(localStorage.getItem(STORE_KEY)||"null");
+    if(d && Array.isArray(d.abas)){
+      const feitos = new Set();
+      d.abas.forEach(a=>a.itens.forEach(it=>{ if(it.feito) feitos.add(it.texto); }));
+      st.abas.forEach(a=>a.itens.forEach(it=>{ if(feitos.has(it.texto)) progresso.add(it.id); }));
+      salvarProgresso();
+    }
+  }catch(e){}
+  try{ localStorage.setItem(MIGR_KEY,"1"); }catch(e){}
+}
+
+/* ---------------------------- Carga ---------------------------- */
+async function load(){
+  if(sbLigado()){
+    try{
+      const st = await carregarTrilha();
+      offline = false;
+      migrarProgressoAntigo(st);
+      return aplicarProgresso(st);
+    }catch(e){ console.error("Supabase indisponível:", e); }
+  }
+  offline = true;   // sem chave, sem rede, ou banco fora do ar
+  try{
+    const d = JSON.parse(localStorage.getItem(STORE_KEY)||"null");
+    if(d && Array.isArray(d.abas)) return aplicarProgresso(d);
+  }catch(e){}
+  return aplicarProgresso(clone(SEED));
+}
+
+async function recarregar(){ state = await load(); editingId = null; editingAba = null; render(); }
+
+/* --------------------------- Slugs --------------------------- */
+/* O slug é a rota (#fundamentos-ia). Tira acento, espaço e maiúscula para o
+   link continuar legível e não quebrar em nenhum navegador. */
+function slugify(s){
+  return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40) || "tema";
+}
+function slugUnico(nome, ignorarId, usados){
+  const base = slugify(nome);
+  const existe = s => (usados ? usados.has(s) : state.abas.some(a=>a.id===s && a.id!==ignorarId));
+  let s = base, n = 2;
+  while(existe(s)) s = `${base}-${n++}`;
+  if(usados) usados.add(s);
+  return s;
+}
+
+/* ------------------- Substituir a trilha inteira ------------------- */
+/* Apaga tudo e reinsere a partir de um data.json. Os itens caem sozinhos
+   pelo "on delete cascade" do supabase.sql. */
+async function substituirTrilha(d){
+  await sbFetch("temas?id=not.is.null", {method:"DELETE"});
+  const usados = new Set();
+  let ordem = 0;
+  for(const a of d.abas){
+    ordem++;
+    const slug = slugUnico(a.id || a.nome, null, usados);
+    const [row] = await sbFetch("temas", {
+      method:"POST", headers:{ "Prefer":"return=representation" },
+      body: JSON.stringify({
+        slug,
+        nome:  (a.nome||"Sem nome").slice(0,60),
+        emoji: (a.emoji||"📘").slice(0,8),
+        resumo:(a.resumo||"").slice(0,200),
+        ordem
+      })
+    });
+    const itens = (a.itens||[]).map((it,k)=>({
+      tema_id: row.id,
+      texto:  (it.texto||"(sem título)").slice(0,200),
+      detalhe:(it.detalhe||"").slice(0,300),
+      ordem: k+1
+    }));
+    if(itens.length) await sbFetch("itens", {method:"POST", body: JSON.stringify(itens)});
+  }
+}
+
+/* ---------------------------- Mural ---------------------------- */
+const fmtData = new Intl.DateTimeFormat("pt-BR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+function quando(iso){ try{ return fmtData.format(new Date(iso)); }catch(e){ return ""; } }
+
+/* Apelido guardado por navegador: você digita uma vez e ele volta sozinho.
+   É conveniência, não identidade — qualquer um pode digitar qualquer nome. */
+function identidadeAutor(){ try{ return localStorage.getItem(APELIDO_KEY)||""; }catch(e){ return ""; } }
+function salvarApelido(a){ try{ localStorage.setItem(APELIDO_KEY, a); }catch(e){} }
+
+async function carregarMensagens(){
+  if(offline) return;
+  try{ mensagens = await sbFetch("mensagens?select=id,autor,texto,criada_em&order=criada_em.desc&limit=100"); }
+  catch(e){ console.error("Mural:", e); }
+}
+
+/* Poll leve: só roda enquanto você está no #mural, e nunca redesenha por cima
+   de alguém digitando. */
+async function atualizarMural(){
+  if(route()!=="mural" || offline) return;
+  const inp = document.querySelector("[data-form-msg] input[name='texto']");
+  if(inp && (inp.value.trim() || document.activeElement===inp)) return;
+  const antes = mensagens.length ? mensagens[0].id : null;
+  await carregarMensagens();
+  if((mensagens.length ? mensagens[0].id : null) !== antes) render();
+}
+function ajustarPollMural(){
+  if(muralTimer){ clearInterval(muralTimer); muralTimer=null; }
+  if(route()==="mural" && !offline) muralTimer = setInterval(atualizarMural, 8000);
+}
+window.addEventListener("focus", atualizarMural);
+
+/* Só usado no modo offline — o servidor é a fonte da verdade quando há rede. */
 function persist(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){} }
 function stats(a){ const t=a.itens.length, d=a.itens.filter(i=>i.feito).length; return {t,d,pct:t?Math.round(d/t*100):0}; }
 function totals(){ let t=0,d=0; state.abas.forEach(a=>{t+=a.itens.length; d+=a.itens.filter(i=>i.feito).length;}); return {t,d,pct:t?Math.round(d/t*100):0}; }
@@ -328,7 +561,18 @@ function curTheme(){ return document.documentElement.getAttribute("data-theme")|
 function route(){ const h=(location.hash||"").replace(/^#/,""); return h||"home"; }
 function go(id){ if(route()===id){ render(); } else { location.hash = id; } }
 
-window.addEventListener("hashchange", ()=>{ editingId=null; render(); window.scrollTo({top:0}); });
+window.addEventListener("hashchange", async ()=>{
+  editingId = null;
+  const r = route();
+  /* Tema novo que nunca chegou a ser salvo não sobrevive à navegação. */
+  if(state) state.abas = state.abas.filter(a=>!a.novo || a.id===r);
+  if(editingAba && editingAba!==r) editingAba = null;
+  render();
+  window.scrollTo({top:0});
+  if(editingAba===r) focusTema();   // o formulário só existe depois deste render
+  if(r==="mural"){ await carregarMensagens(); render(); }
+  ajustarPollMural();
+});
 
 /* ============================ Componentes ============================ */
 function themeBtn(){ const t=curTheme(); return `<button class="ghost" data-action="theme" title="Alternar tema">${t==="dark"?"☾ Escuro":"☀ Claro"}</button>`; }
@@ -344,6 +588,10 @@ function viewHome(){
     <button class="card feature" data-go="resumo">
       <div class="c-top"><span class="c-emoji">📊</span></div>
       <div><p class="c-name">Visão geral</p><p class="c-sub">Progresso, pendentes e cronograma</p></div>
+    </button>
+    <button class="card feature" data-go="mural">
+      <div class="c-top"><span class="c-emoji">💬</span></div>
+      <div><p class="c-name">Mural</p><p class="c-sub">Recados compartilhados com todos</p></div>
     </button>`;
 
   let stages = state.abas.map((a,idx)=>{
@@ -355,7 +603,12 @@ function viewHome(){
       <div class="c-bar"><i style="width:${s.pct}%"></i></div>
       <div class="c-meta"><span class="c-count mono">${s.d}/${s.t} • ${s.pct}%</span><span class="c-go">→</span></div>
     </button>`;
-  }).join("");
+  }).join("") + `
+    <button class="card novo" data-action="tema-novo">
+      <div class="c-top"><span class="c-emoji">＋</span></div>
+      <p class="c-name">Novo tema</p>
+      <p class="c-sub">Adicionar um estágio à trilha</p>
+    </button>`;
 
   return `<div class="wrap">
     <div class="bar"><span class="brandmini">📚 Trilha de Estudos</span><span class="spacer"></span>${themeBtn()}</div>
@@ -384,9 +637,9 @@ function viewHome(){
     <div class="bar" style="margin-top:26px; justify-content:center; flex-wrap:wrap">
       <button class="ghost" data-action="export">⤓ Exportar</button>
       <button class="ghost" data-action="import">⤒ Importar</button>
-      <button class="ghost" data-action="restore">↺ Restaurar padrão</button>
+      <button class="ghost" data-action="restore">↺ Zerar meu progresso</button>
     </div>
-    <p class="foot">Edits salvos automaticamente neste navegador. Use <code>Exportar</code> para gerar o <code>data.json</code> e versioná-lo no git.</p>
+    <p class="foot">Temas e itens são <b>compartilhados</b> com quem acessar. O seu <code>✓ concluído</code> fica só neste navegador.</p>
   </div>`;
 }
 
@@ -414,14 +667,39 @@ function viewStage(idx){
     </li>`;
   }).join("");
 
+  const cabecalho = (editingAba===a.id)
+    ? `<div class="sec-head">
+        <div class="eyebrow">${a.novo?"novo tema":"editando tema"}</div>
+        <form class="edit-form" data-form-tema="${a.id}" style="max-width:540px; margin-top:12px">
+          <div class="row-tema">
+            <input name="emoji" value="${esc(a.emoji)}" maxlength="4" aria-label="Emoji do tema">
+            <input name="nome" value="${esc(a.nome)}" placeholder="Nome do tema" maxlength="60" autocomplete="off" required>
+          </div>
+          <input name="resumo" class="detail" value="${esc(a.resumo||"")}" placeholder="Resumo curto (opcional)" maxlength="200" autocomplete="off">
+          <div class="row">
+            <button type="button" class="btn" data-action="tema-cancel">Cancelar</button>
+            <button type="submit" class="btn primary">${a.novo?"Criar tema":"Salvar tema"}</button>
+          </div>
+        </form>
+      </div>`
+    : `<div class="sec-head ${s.t&&s.d===s.t?'all-done':''}">
+        <div class="eyebrow">estágio ${String(idx+1).padStart(2,"0")} — ${s.d}/${s.t} concluídos</div>
+        <h2>${a.emoji} ${esc(a.nome)}</h2>
+        <p>${esc(a.resumo)}</p>
+        <div class="prog-inline"><span class="track"><i style="width:${s.pct}%"></i></span><span class="pct">${s.pct}%</span>
+          ${s.t ? `<button class="mini" data-action="toggle-all" data-marcar="${s.d===s.t?"0":"1"}">${s.d===s.t?"↺ desmarcar tudo":"✓ concluir tudo"}</button>` : ""}
+        </div>
+        <div class="tema-actions">
+          <button class="mini" data-action="tema-edit">✎ editar tema</button>
+          <button class="mini" data-action="tema-up" ${idx===0?"disabled":""}>↑ subir</button>
+          <button class="mini" data-action="tema-down" ${idx===state.abas.length-1?"disabled":""}>↓ descer</button>
+          <button class="mini danger" data-action="tema-delete">🗑 excluir tema</button>
+        </div>
+      </div>`;
+
   return `<div class="wrap">
     ${topBar()}
-    <div class="sec-head ${s.t&&s.d===s.t?'all-done':''}">
-      <div class="eyebrow">estágio ${String(idx+1).padStart(2,"0")} — ${s.d}/${s.t} concluídos</div>
-      <h2>${a.emoji} ${esc(a.nome)}</h2>
-      <p>${esc(a.resumo)}</p>
-      <div class="prog-inline"><span class="track"><i style="width:${s.pct}%"></i></span><span class="pct">${s.pct}%</span></div>
-    </div>
+    ${cabecalho}
     <ul class="list">${items}</ul>
     <button class="add-item" data-action="add">+ adicionar item</button>
   </div>`;
@@ -436,6 +714,7 @@ function viewAfazer(){
     <div class="eyebrow">a fazer — ${pend.length} pendente${pend.length===1?"":"s"}</div>
     <h2>✅ Tarefas a fazer</h2>
     <p>Todos os itens ainda não concluídos, reunidos aqui. Marque para concluir ou clique em <b>abrir</b> para ir ao estágio.</p>
+    ${pend.length?`<div class="prog-inline"><button class="mini" data-action="toggle-all" data-marcar="1">✓ concluir os ${pend.length} pendentes</button></div>`:""}
   </div>`;
 
   let body;
@@ -503,22 +782,72 @@ function viewResumo(){
 }
 
 /* ============================ Render ============================ */
+function viewMural(){
+  const apelido = identidadeAutor();
+  const n = mensagens.length;
+
+  const lista = n
+    ? `<ul class="list msgs">${mensagens.map(m=>`<li class="msg">
+        <div class="msg-head"><b>${esc(m.autor)}</b><time>${quando(m.criada_em)}</time></div>
+        <p class="msg-body">${esc(m.texto)}</p>
+      </li>`).join("")}</ul>`
+    : `<div class="empty-state"><div class="big">💬</div>
+        <p class="item-text" style="color:var(--ink)">Nenhum recado ainda</p>
+        <p>Escreva o primeiro — ele fica visível para todo mundo que abrir esta página.</p></div>`;
+
+  const form = offline
+    ? `<p class="foot" style="text-align:left">O mural precisa do banco. Em modo local não dá para ler nem enviar.</p>`
+    : `<form class="edit-form msg-form" data-form-msg="1">
+        <input name="autor" value="${esc(apelido)}" placeholder="Seu apelido" maxlength="40" autocomplete="off" required>
+        <input name="texto" placeholder="Escreva um recado…" maxlength="500" autocomplete="off" required>
+        <div class="row"><button type="submit" class="btn primary">Enviar</button></div>
+      </form>`;
+
+  return `<div class="wrap">
+    ${topBar()}
+    <div class="sec-head">
+      <div class="eyebrow">mural — ${n} recado${n===1?"":"s"}</div>
+      <h2>💬 Mural de recados</h2>
+      <p>Compartilhado com todos que acessam a página. Fica salvo no banco: não some no F5, nem ao fechar o navegador. Recado enviado não pode ser editado nem apagado.</p>
+    </div>
+    ${form}
+    ${lista}
+  </div>`;
+}
+
+function avisoOffline(){
+  if(!offline) return "";
+  const motivo = sbLigado() ? "o banco não respondeu" : "a anon key ainda não foi preenchida no topo do arquivo";
+  return `<div class="wrap" style="padding-top:0">
+    <p class="foot">⚠ <b>Modo local</b> — ${motivo}. Suas mudanças ficam só neste navegador.</p></div>`;
+}
+
 function render(){
+  if(carregando){
+    $("#app").innerHTML = `<div class="wrap"><div class="empty-state">
+      <div class="big">⏳</div><p>Carregando a trilha…</p></div></div>`;
+    return;
+  }
   const r = route();
   let html;
   if(r==="home") html = viewHome();
   else if(r==="afazer") html = viewAfazer();
   else if(r==="resumo") html = viewResumo();
+  else if(r==="mural") html = viewMural();
   else { const idx = state.abas.findIndex(a=>a.id===r); if(idx<0){ location.hash=""; return; } html = viewStage(idx); }
-  $("#app").innerHTML = html;
+  $("#app").innerHTML = html + avisoOffline();
 }
 
 /* ============================ Ações ============================ */
-document.addEventListener("click", e=>{
-  const goEl = e.target.closest("[data-go]");
-  if(goEl){ go(goEl.dataset.go); return; }
-
-  const act = e.target.closest("[data-action]"); if(!act) return;
+document.addEventListener("click", async e=>{
+  /* data-action é consultado antes de data-go: assim um botão de ação dentro
+     de um card navegável vence a navegação do card que o contém. */
+  const act = e.target.closest("[data-action]");
+  if(!act){
+    const goEl = e.target.closest("[data-go]");
+    if(goEl) go(goEl.dataset.go);
+    return;
+  }
   const action = act.dataset.action;
   const li = act.closest(".item"); const id = li?.dataset.id;
 
@@ -527,27 +856,205 @@ document.addEventListener("click", e=>{
     case "theme": toggleTheme(); break;
     case "export": exportJSON(); break;
     case "import": $("#fileIn").click(); break;
+
     case "restore":
-      if(confirm("Restaurar o conteúdo padrão? Suas edições e marcações serão apagadas.")){
-        state = clone(SEED); editingId=null; persist(); render();
+      /* A trilha agora é compartilhada — zerar o conteúdo apagaria o de todos.
+         Este botão passa a zerar só o SEU progresso. Trocar a trilha inteira
+         vem na Etapa 4 (Importar). */
+      if(confirm("Zerar o seu progresso? Os temas compartilhados não são afetados.")){
+        progresso.clear(); salvarProgresso(); aplicarProgresso(state); editingId=null; render();
       } break;
-    case "toggle":{ const f=findItem(id); if(f){ f.it.feito=!f.it.feito; persist(); render(); } break; }
+
+    case "toggle":{
+      const f=findItem(id); if(!f) break;
+      f.it.feito = !f.it.feito; marcarItem(id, f.it.feito); render();
+      break;
+    }
+
+    case "toggle-all":{
+      const marcar = act.dataset.marcar === "1";
+      const alvo = route()==="afazer"
+        ? state.abas
+        : [state.abas.find(a=>a.id===route())].filter(Boolean);
+      alvo.forEach(aba => marcarTodosDoTema(aba, marcar));
+      aplicarProgresso(state);   // re-sincroniza os ✓ a partir do Set
+      render();
+      break;
+    }
+
+    /* ---------------------- Gestão de temas ---------------------- */
+    case "tema-edit": editingAba = route(); editingId = null; render(); focusTema(); break;
+
+    case "tema-cancel":{
+      const aba = state.abas.find(a=>a.id===editingAba);
+      editingAba = null;
+      if(aba && aba.novo){ state.abas = state.abas.filter(a=>a!==aba); go("home"); }
+      else render();
+      break;
+    }
+
+    case "tema-novo":{
+      /* Igual ao item novo: nasce só na memória e só vira linha no banco
+         quando você salvar — assim cancelar não deixa lixo para os outros. */
+      const tmp = "novo-"+uid();
+      const ordem = state.abas.reduce((m,a)=>Math.max(m, a.ordem||0), 0) + 1;
+      state.abas.push({ id:tmp, dbId:null, nome:"", emoji:"📘", resumo:"", ordem, itens:[], novo:true });
+      editingAba = tmp; editingId = null;
+      go(tmp); focusTema();
+      break;
+    }
+
+    case "tema-delete":{
+      const aba = state.abas.find(a=>a.id===route()); if(!aba) break;
+      if(!confirm(`Excluir o tema "${aba.nome}" e seus ${aba.itens.length} itens?\n\nIsso apaga para TODOS que acessam a página.`)) break;
+      const dbId = aba.dbId;
+      aba.itens.forEach(it=>progresso.delete(it.id)); salvarProgresso();
+      state.abas = state.abas.filter(a=>a!==aba);
+      go("home");
+      if(dbId) await salvarNoServidor(()=> sbFetch(`temas?id=eq.${dbId}`, {method:"DELETE"}));
+      break;
+    }
+
+    case "tema-up":
+    case "tema-down":{
+      const i = state.abas.findIndex(a=>a.id===route()); if(i<0) break;
+      const j = action==="tema-up" ? i-1 : i+1;
+      if(j<0 || j>=state.abas.length) break;
+      [state.abas[i], state.abas[j]] = [state.abas[j], state.abas[i]];
+      /* Renumera pela posição: conserta sozinho qualquer ordem duplicada. */
+      const mudados = [];
+      state.abas.forEach((a,k)=>{ if(a.ordem!==k+1){ a.ordem=k+1; mudados.push(a); } });
+      render();
+      await salvarNoServidor(async ()=>{
+        for(const a of mudados){
+          if(a.dbId) await sbFetch(`temas?id=eq.${a.dbId}`, {method:"PATCH", body: JSON.stringify({ordem:a.ordem})});
+        }
+      });
+      break;
+    }
+
     case "edit": editingId=id; render(); focusEdit(); break;
-    case "cancel":{ const f=findItem(editingId); if(f && !f.it.texto){ f.aba.itens=f.aba.itens.filter(i=>i.id!==editingId); } editingId=null; render(); break; }
-    case "delete":{ const f=findItem(id); if(f && confirm("Excluir este item?")){ f.aba.itens=f.aba.itens.filter(i=>i.id!==id); persist(); render(); } break; }
-    case "add":{ const aba=state.abas.find(a=>a.id===route()); if(!aba) break; const nid=uid(); aba.itens.push({id:nid,texto:"",detalhe:"",feito:false}); editingId=nid; render(); focusEdit(); break; }
+
+    case "cancel":{
+      const f=findItem(editingId);
+      if(f && (f.it.novo || !f.it.texto)){ f.aba.itens=f.aba.itens.filter(i=>i.id!==editingId); }
+      editingId=null; render(); break;
+    }
+
+    case "delete":{
+      const f=findItem(id); if(!f || !confirm("Excluir este item?")) break;
+      f.aba.itens = f.aba.itens.filter(i=>i.id!==id);
+      progresso.delete(id); salvarProgresso();
+      render();
+      await salvarNoServidor(()=> sbFetch(`itens?id=eq.${id}`, {method:"DELETE"}));
+      break;
+    }
+
+    case "add":{
+      /* Item novo nasce só na memória: o banco exige texto não-vazio, então ele
+         só é criado de verdade quando você salvar o formulário. */
+      const aba=state.abas.find(a=>a.id===route()); if(!aba) break;
+      const nid=uid();
+      const proxOrdem = aba.itens.reduce((m,i)=>Math.max(m, i.ordem||0), 0) + 1;
+      aba.itens.push({id:nid, texto:"", detalhe:"", feito:false, novo:true, ordem:proxOrdem});
+      editingId=nid; render(); focusEdit(); break;
+    }
   }
 });
 
-document.addEventListener("submit", e=>{
+document.addEventListener("submit", async e=>{
+  /* ------------------------- Tema ------------------------- */
+  const ft = e.target.closest("[data-form-tema]");
+  if(ft){
+    e.preventDefault();
+    const aba = state.abas.find(a=>a.id===ft.dataset.formTema); if(!aba) return;
+    const nome   = (ft.nome.value.trim() || "Sem nome").slice(0,60);
+    const emoji  = (ft.emoji.value.trim() || "📘").slice(0,8);
+    const resumo = ft.resumo.value.trim().slice(0,200);
+    const eraNovo = Boolean(aba.novo);
+
+    aba.nome = nome; aba.emoji = emoji; aba.resumo = resumo;
+    editingAba = null;
+
+    if(eraNovo){
+      /* Troca o id temporário pelo slug definitivo ANTES de navegar, senão a
+         rota aponta para um tema que não existe mais e o app cai na home. */
+      const slug = slugUnico(nome, aba.id);
+      delete aba.novo; aba.id = slug;
+      go(slug);
+      await salvarNoServidor(async ()=>{
+        const [row] = await sbFetch("temas", {
+          method:"POST", headers:{ "Prefer":"return=representation" },
+          body: JSON.stringify({ slug, nome, emoji, resumo, ordem: aba.ordem })
+        });
+        aba.dbId = row.id;
+      });
+    } else {
+      render();
+      await salvarNoServidor(()=> sbFetch(`temas?id=eq.${aba.dbId}`, {
+        method:"PATCH", body: JSON.stringify({ nome, emoji, resumo })
+      }));
+    }
+    return;
+  }
+
+  /* ------------------------- Mural ------------------------- */
+  const fm = e.target.closest("[data-form-msg]");
+  if(fm){
+    e.preventDefault();
+    if(offline){ alert("O mural precisa do banco. Em modo local não dá para enviar."); return; }
+    const autor = (fm.autor.value.trim() || "Anônimo").slice(0,40);
+    const texto = fm.texto.value.trim().slice(0,500);
+    if(!texto) return;
+    salvarApelido(autor);
+    fm.texto.value = "";
+    try{
+      const [row] = await sbFetch("mensagens", {
+        method:"POST", headers:{ "Prefer":"return=representation" },
+        body: JSON.stringify({ autor, texto })
+      });
+      mensagens.unshift(row);
+      render();
+    }catch(err){
+      console.error(err);
+      alert("Não consegui enviar o recado.\n\n"+err.message);
+    }
+    return;
+  }
+
+  /* ------------------------- Item ------------------------- */
   const form = e.target.closest("[data-form]"); if(!form) return;
   e.preventDefault();
   const f = findItem(form.dataset.form);
-  if(f){ f.it.texto = form.texto.value.trim() || "(sem título)"; f.it.detalhe = form.detalhe.value.trim(); }
-  editingId=null; persist(); render();
+  if(!f){ editingId=null; render(); return; }
+
+  /* Corta nos limites do check constraint do banco (200 / 300). */
+  const texto   = (form.texto.value.trim() || "(sem título)").slice(0,200);
+  const detalhe = form.detalhe.value.trim().slice(0,300);
+  const eraNovo = Boolean(f.it.novo);
+
+  f.it.texto = texto; f.it.detalhe = detalhe; delete f.it.novo;
+  editingId = null; render();
+
+  await salvarNoServidor(async ()=>{
+    if(eraNovo){
+      const [row] = await sbFetch("itens", {
+        method:"POST",
+        headers:{ "Prefer":"return=representation" },
+        body: JSON.stringify({ tema_id:f.aba.dbId, texto, detalhe, ordem:f.it.ordem })
+      });
+      f.it.id = row.id;   // troca o id temporário pelo uuid que o banco gerou
+      render();
+    } else {
+      await sbFetch(`itens?id=eq.${f.it.id}`, {
+        method:"PATCH", body: JSON.stringify({ texto, detalhe })
+      });
+    }
+  });
 });
 
 function focusEdit(){ requestAnimationFrame(()=>{ const i=document.querySelector(".edit-form input[name='texto']"); if(i){ i.focus(); i.select(); } }); }
+function focusTema(){ requestAnimationFrame(()=>{ const i=document.querySelector("[data-form-tema] input[name='nome']"); if(i){ i.focus(); i.select(); } }); }
 
 function exportJSON(){
   const blob = new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
@@ -558,10 +1065,37 @@ function exportJSON(){
 $("#fileIn").addEventListener("change", e=>{
   const file = e.target.files[0]; if(!file) return;
   const r = new FileReader();
-  r.onload = () => {
-    try{ const d = JSON.parse(r.result); if(!d || !Array.isArray(d.abas)) throw 0;
-      state = d; editingId=null; persist(); render();
-    }catch(err){ alert("Arquivo inválido. Selecione um data.json exportado por este app."); }
+  r.onload = async () => {
+    let d;
+    try{ d = JSON.parse(r.result); if(!d || !Array.isArray(d.abas)) throw new Error("formato"); }
+    catch(err){
+      alert("Arquivo inválido. Selecione um data.json exportado por este app.");
+      e.target.value=""; return;
+    }
+
+    if(offline){   // sem banco, importar é o comportamento antigo: só local
+      state = aplicarProgresso(d); editingId=null; editingAba=null; persist(); render();
+      e.target.value=""; return;
+    }
+
+    const nItens = d.abas.reduce((n,a)=>n+((a.itens&&a.itens.length)||0), 0);
+    const ok = confirm(
+      `Substituir a trilha inteira por ${d.abas.length} temas e ${nItens} itens?\n\n`+
+      `Isso APAGA a trilha atual para TODOS que acessam a página.\n`+
+      `Se quiser poder voltar atrás, cancele e clique em Exportar antes.`
+    );
+    if(!ok){ e.target.value=""; return; }
+
+    try{
+      carregando = true; render();
+      await substituirTrilha(d);
+      state = await load();
+    }catch(err){
+      console.error(err);
+      alert("Falha ao substituir a trilha.\n\n"+err.message);
+      state = await load();
+    }
+    carregando = false; editingId=null; editingAba=null; render();
     e.target.value="";
   };
   r.readAsText(file);
@@ -571,9 +1105,16 @@ function applyTheme(t){ document.documentElement.setAttribute("data-theme", t); 
 function toggleTheme(){ const next = curTheme()==="dark"?"light":"dark"; try{ localStorage.setItem(THEME_KEY, next); }catch(e){} applyTheme(next); render(); }
 
 /* ============================ Init ============================ */
-state = load();
 applyTheme((()=>{ try{ return localStorage.getItem(THEME_KEY)||"dark"; }catch(e){ return "dark"; } })());
-render();
+render();   // pinta o "carregando" antes do primeiro fetch
+
+(async ()=>{
+  state = await load();
+  carregando = false;
+  if(route()==="mural") await carregarMensagens();
+  render();
+  ajustarPollMural();
+})();
 </script>
 </body>
 </html>

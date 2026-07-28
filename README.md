@@ -18,20 +18,33 @@ dependência de CDN. A diferença é que agora ele conversa com um banco no **Su
 - **Mural de recados** compartilhado com todo mundo que abrir a página.
 - **Tema claro/escuro** e layout responsivo.
 
-## 💾 Onde cada coisa fica salva
+## 👤 Contas
 
-Esta é a parte que vale entender:
+Entrar é opcional para **ler**, obrigatório para **editar**:
+
+| | Sem entrar | Entrando com o Google |
+|---|---|---|
+| Ver a trilha oficial | ✅ | ✅ |
+| Ler o mural | ✅ | ✅ |
+| Ter uma trilha própria e editável | ❌ | ✅ |
+| Marcar ✓ | só neste navegador | na conta, em qualquer aparelho |
+| Escrever no mural | ❌ | ✅ (assinado, verificado) |
+
+Ao criar a conta, um *trigger* no banco copia a trilha oficial para você. A partir daí ela é
+sua: edite, reordene, exclua — ninguém mais vê suas mudanças, e você não vê as dos outros.
+
+## 💾 Onde cada coisa fica salva
 
 | O quê | Onde | Quem vê |
 |---|---|---|
-| Temas e itens | Supabase (tabelas `temas` e `itens`) | **Todos** — é uma trilha só |
-| Recados do mural | Supabase (tabela `mensagens`) | **Todos** |
-| Seu ✓ concluído | `localStorage` do seu navegador | **Só você** |
-| Apelido e tema claro/escuro | `localStorage` | Só você |
+| Trilha oficial (`user_id` nulo) | Supabase | Todos leem, **ninguém edita** pelo site |
+| Sua trilha (`user_id` = você) | Supabase | **Só você** |
+| Seu progresso | Supabase (tabela `progresso`) | **Só você**, em todos os seus aparelhos |
+| Recados do mural | Supabase (tabela `mensagens`) | Todos leem; só contas escrevem |
+| Tema claro/escuro | `localStorage` | Só você |
 
-O progresso é pessoal de propósito: o tema é um fato compartilhado (existe uma trilha só),
-enquanto o ✓ é uma opinião pessoal — cada pessoa está num ponto diferente. Se o progresso
-fosse compartilhado, qualquer visitante marcaria itens pelos outros.
+Quem não entrou tem o ✓ no `localStorage`. No primeiro login esse progresso é migrado para
+a conta — casando por **texto do item**, porque a sua cópia tem ids diferentes dos do modelo.
 
 **Modo local:** se o banco não responder (sem internet, chave em branco, projeto fora do
 ar), o app não quebra — ele cai no conteúdo semente embutido e avisa **"⚠ Modo local"** no
@@ -45,10 +58,27 @@ As duas formas funcionam — o Supabase aceita requisições de páginas abertas
 **Do zero, num Supabase novo:**
 
 1. Crie um projeto em [supabase.com](https://supabase.com).
-2. **SQL Editor → New query** → cole o conteúdo de `supabase.sql` → **Run**.
-   Ao final ele confere: deve dar 8 temas e 50 itens.
-3. **Settings → API**: copie a *Project URL* e a chave *anon/publishable*.
-4. Preencha as duas no topo do `index.html`, no bloco `const SB = {...}`.
+2. **SQL Editor → New query** → rode o `supabase.sql` (schema base, 8 temas / 50 itens).
+3. Rode o `supabase-contas.sql` (contas, progresso e policies por dono).
+4. **Settings → API**: copie a *Project URL* e a chave *anon/publishable* e preencha no topo
+   do `index.html`, no bloco `const SB = {...}`.
+
+**Login com Google:**
+
+5. No [Google Cloud Console](https://console.cloud.google.com): *APIs e Serviços → Tela de
+   permissão OAuth* (Externo) → *Credenciais → ID do cliente OAuth → Aplicativo da Web*.
+   Em **URIs de redirecionamento autorizados**, use:
+   `https://<SEU-REF>.supabase.co/auth/v1/callback`
+6. No Supabase: *Authentication → Providers → Google* → habilitar e colar Client ID e Secret.
+7. *Authentication → URL Configuration*: **Site URL** e **Redirect URLs** apontando para a URL
+   publicada do site.
+
+> A tela de permissão nasce em modo **Teste** e só deixa entrar contas listadas em *Usuários
+> de teste*. Para abrir a qualquer pessoa, publique a tela de consentimento.
+
+> A **Chave secreta do cliente** fica só no painel do Supabase — nunca no repositório. É ela
+> que o Supabase usa para trocar o código do Google por uma sessão, e não pode passar pelo
+> navegador.
 
 > A chave `anon` é pública por desenho e pode ir para o Git — ela só diz "sou um visitante
 > anônimo". Quem protege o banco são as políticas de RLS definidas no `supabase.sql`.
@@ -56,10 +86,19 @@ As duas formas funcionam — o Supabase aceita requisições de páginas abertas
 
 ## 🔄 Backup e substituição em massa
 
-- **⤓ Exportar** baixa um `data.json` com a trilha atual. Use como backup.
-- **⤒ Importar** substitui a trilha **de todos** pelo conteúdo do arquivo, depois de uma
-  confirmação. Exporte antes se quiser poder voltar.
-- **↺ Zerar meu progresso** limpa só os seus ✓ — não toca no conteúdo compartilhado.
+- **⤓ Exportar** baixa um `data.json` com a trilha que está na tela. Use como backup.
+- **⤒ Importar** substitui a **sua** trilha pelo conteúdo do arquivo, depois de uma
+  confirmação. A trilha oficial e a dos outros não são afetadas.
+- **↺ Zerar meu progresso** limpa só os seus ✓.
+
+## 🛠️ Como editar a trilha oficial
+
+As policies impedem escrita nas linhas com `user_id` nulo — **inclusive para você**, pelo
+site. Isso é proposital: não existe "modo admin" escondido no HTML público.
+
+Para curar o modelo, use o **Table Editor** ou o **SQL Editor** do Supabase, onde a chave
+`service_role` do painel passa por cima do RLS. Quem criar conta a partir daí recebe a versão
+nova.
 
 ## 🌿 Fluxo com o git
 
@@ -76,10 +115,11 @@ repositório é só backup/semente.
 
 ```
 estudos-ia/
-  index.html    → o app inteiro (HTML + CSS + JS + conteúdo semente do modo local)
-  supabase.sql  → schema, políticas de RLS e seed dos 8 temas
-  data.json     → backup versionável (use Exportar/Importar)
-  README.md     → este arquivo
+  index.html           → o app inteiro (HTML + CSS + JS + semente do modo local)
+  supabase.sql         → schema base: 3 tabelas, RLS e seed dos 8 temas
+  supabase-contas.sql  → migração para contas: dono, progresso, policies e trigger
+  data.json            → backup versionável (use Exportar/Importar)
+  README.md            → este arquivo
   .gitignore
 ```
 

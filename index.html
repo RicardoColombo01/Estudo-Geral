@@ -185,6 +185,18 @@ button{font-family:inherit}
 .empty-state{text-align:center; padding:40px 20px; color:var(--muted)}
 .empty-state .big{font-size:40px; margin-bottom:10px}
 
+/* ============ Conta ============ */
+.bar{flex-wrap:wrap}
+.conta{display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--ink-dim); max-width:200px; min-width:0}
+.conta img{width:24px; height:24px; border-radius:50%; flex:none; background:var(--panel-2)}
+.conta b{font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.convite{background:var(--panel); border:1.5px dashed var(--line); border-radius:var(--radius);
+  padding:18px 20px; text-align:center; margin-bottom:22px}
+.convite p{margin:0 0 12px; color:var(--muted); font-size:13.5px; max-width:52ch; margin-inline:auto}
+.convite .btn{display:inline-flex; align-items:center; gap:8px}
+.msg-como{flex:1; align-self:center; font-size:12px; color:var(--muted); text-align:left;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+
 /* ============ Gestão de temas ============ */
 .tema-actions{display:flex; gap:4px; margin-top:14px; flex-wrap:wrap}
 .mini[disabled]{opacity:.3; cursor:default}
@@ -217,6 +229,10 @@ button{font-family:inherit}
 <body>
 <input type="file" id="fileIn" accept="application/json,.json" hidden>
 <main id="app"></main>
+
+<!-- SDK do Supabase (build UMD, não módulo ES: assim o duplo clique no
+     arquivo continua funcionando). Expõe window.supabase. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
 /* ============================ SEED ============================ */
@@ -330,12 +346,56 @@ const SB = {
 };
 const sbLigado = () => Boolean(SB.url && SB.key);
 
+/* ========================= Autenticação ========================= */
+/* O SDK entra só por causa do login: guardar a sessão, renovar o token antes
+   de expirar e tratar o retorno do OAuth é exatamente o que dá errado quando
+   se faz à mão. Os dados continuam indo pelo sbFetch(), como sempre. */
+const sbClient = (window.supabase && sbLigado())
+  ? window.supabase.createClient(SB.url, SB.key, {
+      auth:{
+        flowType: "pkce",        // volta em ?code=, deixando o #hash da rota intacto
+        detectSessionInUrl: true,
+        persistSession: true,
+        autoRefreshToken: true
+      }
+    })
+  : null;
+
+const VOLTAR_KEY = "estudos-ia-voltar";
+let sessao = null, authPronto = false;
+
+const logado     = () => Boolean(sessao);
+const podeEditar = () => Boolean(sessao);
+
+function meuNome(){
+  const u = sessao && sessao.user; if(!u) return "";
+  return (u.user_metadata && (u.user_metadata.full_name || u.user_metadata.name)) || u.email || "Você";
+}
+function meuAvatar(){ return (sessao && sessao.user && sessao.user.user_metadata && sessao.user.user_metadata.avatar_url) || ""; }
+
+async function entrar(){
+  if(!sbClient){ alert("O login precisa do SDK do Supabase, que não carregou.\nVerifique a conexão e recarregue."); return; }
+  /* O redirect não pode levar o #hash junto (o ?code= do PKCE brigaria com
+     ele), então guardamos a rota atual para restaurar na volta. */
+  try{ sessionStorage.setItem(VOLTAR_KEY, location.hash || ""); }catch(e){}
+  const { error } = await sbClient.auth.signInWithOAuth({
+    provider: "google",
+    options:{ redirectTo: location.origin + location.pathname }
+  });
+  if(error) alert("Não consegui iniciar o login.\n\n"+error.message);
+}
+
+async function sair(){
+  if(!sbClient) return;
+  await sbClient.auth.signOut();
+}
+
 /* ============================ Estado ============================ */
 const STORE_KEY = "estudos-ia-data-v1";       // fallback offline (formato antigo)
 const PROG_KEY  = "estudos-ia-progresso-v1";  // ids concluídos — pessoal, por navegador
 const MIGR_KEY  = "estudos-ia-migrado-v1";
+const MIGR_CONTA_KEY = "estudos-ia-migrado-conta-v1";
 const THEME_KEY = "estudos-ia-theme";
-const APELIDO_KEY = "estudos-ia-apelido";
 let state, editingId = null, editingAba = null;
 let carregando = true;   // primeiro fetch ainda não voltou
 let offline = false;     // o banco não respondeu (ou não foi configurado)
@@ -354,7 +414,10 @@ async function sbFetch(path, opts={}){
     ...opts,
     headers:{
       "apikey": SB.key,
-      "Authorization": `Bearer ${SB.key}`,
+      /* O crachá: deslogado vai a chave anônima (enxerga só o modelo);
+         logado vai o JWT da sessão, e o auth.uid() das policies passa a
+         valer. Uma linha aqui muda o comportamento de todas as chamadas. */
+      "Authorization": `Bearer ${(sessao && sessao.access_token) || SB.key}`,
       "Content-Type": "application/json",
       ...(opts.headers||{})
     }
@@ -379,7 +442,10 @@ async function salvarNoServidor(op){
 /* Traz temas + itens numa chamada só (embed do PostgREST) e devolve no MESMO
    formato que as telas já esperam — por isso stats/totals/viewHome não mudam. */
 async function carregarTrilha(){
-  const temas = await sbFetch("temas?select=id,slug,nome,emoji,resumo,ordem,itens(id,texto,detalhe,ordem)&order=ordem");
+  /* Sem este filtro, quem está logado veria o modelo E a própria cópia — a
+     trilha apareceria duplicada, porque as policies permitem ler os dois. */
+  const filtro = logado() ? `user_id=eq.${sessao.user.id}` : "user_id=is.null";
+  const temas = await sbFetch(`temas?select=id,slug,nome,emoji,resumo,ordem,itens(id,texto,detalhe,ordem)&${filtro}&order=ordem`);
   return {
     meta: clone(SEED.meta),
     abas: temas.map(t=>({
@@ -393,17 +459,80 @@ async function carregarTrilha(){
   };
 }
 
-/* ------------------------- Progresso (local) ------------------------- */
-/* O tema é um fato compartilhado; o ✓ é uma opinião pessoal. Por isso ele mora
-   aqui, no navegador de cada visitante, e não no banco. */
-let progresso = (()=>{
+/* --------------------------- Progresso --------------------------- */
+/* O Set continua sendo a única fonte que a tela lê. O que muda com a conta é
+   de onde ele vem e para onde vai:
+     deslogado → localStorage (só neste navegador)
+     logado    → tabela progresso (acompanha você de aparelho em aparelho) */
+function lerProgressoLocal(){
   try{ const a = JSON.parse(localStorage.getItem(PROG_KEY)||"[]"); return new Set(Array.isArray(a)?a:[]); }
   catch(e){ return new Set(); }
-})();
+}
+let progresso = lerProgressoLocal();
 
-function salvarProgresso(){ try{ localStorage.setItem(PROG_KEY, JSON.stringify([...progresso])); }catch(e){} }
+function salvarProgresso(){
+  if(logado()) return;   // logado, a verdade mora no banco — não duplicar aqui
+  try{ localStorage.setItem(PROG_KEY, JSON.stringify([...progresso])); }catch(e){}
+}
 function marcarItem(id, feito){ feito ? progresso.add(id) : progresso.delete(id); salvarProgresso(); }
 function aplicarProgresso(st){ st.abas.forEach(a=>a.itens.forEach(it=>{ it.feito = progresso.has(it.id); })); return st; }
+
+async function carregarProgresso(){
+  if(!logado()) return;
+  const linhas = await sbFetch("progresso?select=item_id");
+  progresso = new Set(linhas.map(l=>l.item_id));
+}
+
+/* Manda ao banco em UMA requisição, não uma por item. O user_id vai explícito
+   porque o upsert precisa da chave primária inteira para resolver conflito. */
+async function sincProgresso(ids, feito){
+  if(!logado() || !ids.length) return;
+  /* Em blocos de 100: um DELETE com 300 uuids na querystring estouraria o
+     limite de tamanho da URL. */
+  const blocos = [];
+  for(let i=0; i<ids.length; i+=100) blocos.push(ids.slice(i, i+100));
+  await salvarNoServidor(async ()=>{
+    for(const bloco of blocos){
+      if(feito){
+        await sbFetch("progresso", {
+          method:"POST",
+          headers:{ "Prefer":"resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify(bloco.map(item_id=>({ item_id, user_id: sessao.user.id })))
+        });
+      } else {
+        await sbFetch(`progresso?item_id=in.(${bloco.join(",")})`, {method:"DELETE"});
+      }
+    }
+  });
+}
+
+/* Roda uma vez, no primeiro login: o progresso do localStorage está chaveado
+   pelos uuids DO MODELO, e a sua cópia tem uuids novos. Sem isto, você entra
+   e vê tudo desmarcado. Casa por TEXTO — mesmo truque do migrarProgressoAntigo. */
+async function migrarProgressoParaConta(st){
+  if(!logado() || localStorage.getItem(MIGR_CONTA_KEY)) return;
+  try{
+    const antigos = lerProgressoLocal();
+    if(antigos.size){
+      const modelo = await sbFetch("itens?user_id=is.null&select=id,texto");
+      const feitos = new Set(modelo.filter(i=>antigos.has(i.id)).map(i=>i.texto));
+      const novos = [];
+      st.abas.forEach(a=>a.itens.forEach(it=>{
+        if(feitos.has(it.texto) && !progresso.has(it.id)){ progresso.add(it.id); novos.push(it.id); }
+      }));
+      /* sbFetch direto, e não sincProgresso: aquele trata erro chamando
+         recarregar(), que chamaria load() → esta função de novo, em laço. */
+      if(novos.length){
+        await sbFetch("progresso", {
+          method:"POST",
+          headers:{ "Prefer":"resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify(novos.map(item_id=>({ item_id, user_id: sessao.user.id })))
+        });
+      }
+    }
+  }catch(e){ console.error("Migração do progresso:", e); return; }  // falhou: tenta de novo depois
+  try{ localStorage.setItem(MIGR_CONTA_KEY, "1"); }catch(e){}
+}
 
 /* =====================================================================
    👉 RICARDO — escreva esta função (5 a 8 linhas).
@@ -459,7 +588,13 @@ async function load(){
     try{
       const st = await carregarTrilha();
       offline = false;
-      migrarProgressoAntigo(st);
+      if(logado()){
+        await carregarProgresso();
+        await migrarProgressoParaConta(st);
+      } else {
+        progresso = lerProgressoLocal();   // sair de uma conta não deixa o ✓ dela na tela
+        migrarProgressoAntigo(st);
+      }
       return aplicarProgresso(st);
     }catch(e){ console.error("Supabase indisponível:", e); }
   }
@@ -523,10 +658,10 @@ async function substituirTrilha(d){
 const fmtData = new Intl.DateTimeFormat("pt-BR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
 function quando(iso){ try{ return fmtData.format(new Date(iso)); }catch(e){ return ""; } }
 
-/* Apelido guardado por navegador: você digita uma vez e ele volta sozinho.
-   É conveniência, não identidade — qualquer um pode digitar qualquer nome. */
-function identidadeAutor(){ try{ return localStorage.getItem(APELIDO_KEY)||""; }catch(e){ return ""; } }
-function salvarApelido(a){ try{ localStorage.setItem(APELIDO_KEY, a); }catch(e){} }
+/* O autor deixou de ser texto livre: vem da conta Google e é verificado pelo
+   banco, porque a policy de insert exige user_id = auth.uid(). Ninguém assina
+   pelos outros — e isso vale mesmo para quem chamar a API por fora do site. */
+function identidadeAutor(){ return meuNome(); }
 
 async function carregarMensagens(){
   if(offline) return;
@@ -603,21 +738,25 @@ function viewHome(){
       <div class="c-bar"><i style="width:${s.pct}%"></i></div>
       <div class="c-meta"><span class="c-count mono">${s.d}/${s.t} • ${s.pct}%</span><span class="c-go">→</span></div>
     </button>`;
-  }).join("") + `
+  }).join("") + (podeEditar() ? `
     <button class="card novo" data-action="tema-novo">
       <div class="c-top"><span class="c-emoji">＋</span></div>
       <p class="c-name">Novo tema</p>
       <p class="c-sub">Adicionar um estágio à trilha</p>
-    </button>`;
+    </button>` : "");
 
   return `<div class="wrap">
-    <div class="bar"><span class="brandmini">📚 Trilha de Estudos</span><span class="spacer"></span>${themeBtn()}</div>
+    <div class="bar"><span class="brandmini">📚 Trilha de Estudos</span><span class="spacer"></span>${contaBtn()}${themeBtn()}</div>
 
     <div class="home-head">
-      <div class="eyebrow">trilha de estudos</div>
+      <div class="eyebrow">${logado()?"sua trilha":"trilha oficial"}</div>
       <h1>IA &amp; Desenvolvimento</h1>
-      <p>Escolha por onde começar. Clique em um card para abrir a tela do tema — seu progresso fica salvo automaticamente.</p>
+      <p>${logado()
+        ? "Esta trilha é sua: edite à vontade que ninguém mais vê suas mudanças. O progresso acompanha você em qualquer aparelho."
+        : "Escolha por onde começar. Você está vendo a trilha oficial — entre para ganhar uma cópia sua, editável."}</p>
     </div>
+
+    ${podeEditar()?"":convite("Entre com o Google para receber a sua própria cópia desta trilha, editar os temas do seu jeito e ter o progresso salvo na conta — do celular ao computador.")}
 
     <div class="overall-card">
       <div class="big-ring" style="--v:${ov.pct}"><span><b class="mono">${ov.pct}%</b><small>concluído</small></span></div>
@@ -636,14 +775,30 @@ function viewHome(){
 
     <div class="bar" style="margin-top:26px; justify-content:center; flex-wrap:wrap">
       <button class="ghost" data-action="export">⤓ Exportar</button>
-      <button class="ghost" data-action="import">⤒ Importar</button>
+      ${podeEditar()?`<button class="ghost" data-action="import">⤒ Importar</button>`:""}
       <button class="ghost" data-action="restore">↺ Zerar meu progresso</button>
     </div>
-    <p class="foot">Temas e itens são <b>compartilhados</b> com quem acessar. O seu <code>✓ concluído</code> fica só neste navegador.</p>
+    <p class="foot">${logado()
+      ? `Sua trilha e seu progresso ficam na sua conta Google e acompanham você em qualquer aparelho.`
+      : `A <b>trilha oficial</b> é só leitura. O seu <code>✓ concluído</code> fica neste navegador até você entrar.`}</p>
   </div>`;
 }
 
-function topBar(){ return `<div class="bar"><button class="ghost back" data-action="voltar">← Voltar</button><span class="spacer"></span>${themeBtn()}</div>`; }
+function contaBtn(){
+  if(!sbClient) return "";
+  if(!logado()) return `<button class="ghost" data-action="entrar">🔑 Entrar com o Google</button>`;
+  const av = meuAvatar();
+  return `<span class="conta">${av?`<img src="${esc(av)}" alt="" referrerpolicy="no-referrer">`:"👤"}<b>${esc(meuNome())}</b></span>`+
+         `<button class="ghost" data-action="sair">Sair</button>`;
+}
+
+function convite(texto){
+  if(!sbClient) return "";   // sem SDK não há como logar: não prometer o que não dá
+  return `<div class="convite"><p>${texto}</p>
+    <button class="btn primary" data-action="entrar">🔑 Entrar com o Google</button></div>`;
+}
+
+function topBar(){ return `<div class="bar"><button class="ghost back" data-action="voltar">← Voltar</button><span class="spacer"></span>${contaBtn()}${themeBtn()}</div>`; }
 
 function viewStage(idx){
   const a = state.abas[idx]; const s = stats(a);
@@ -663,7 +818,7 @@ function viewStage(idx){
         ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
         ${it.feito?`<span class="pill-done">✓ pronto</span>`:""}
       </div>
-      <div class="item-actions"><button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>
+      ${podeEditar()?`<div class="item-actions"><button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>`:`<span></span>`}
     </li>`;
   }).join("");
 
@@ -689,19 +844,20 @@ function viewStage(idx){
         <div class="prog-inline"><span class="track"><i style="width:${s.pct}%"></i></span><span class="pct">${s.pct}%</span>
           ${s.t ? `<button class="mini" data-action="toggle-all" data-marcar="${s.d===s.t?"0":"1"}">${s.d===s.t?"↺ desmarcar tudo":"✓ concluir tudo"}</button>` : ""}
         </div>
-        <div class="tema-actions">
+        ${podeEditar()?`<div class="tema-actions">
           <button class="mini" data-action="tema-edit">✎ editar tema</button>
           <button class="mini" data-action="tema-up" ${idx===0?"disabled":""}>↑ subir</button>
           <button class="mini" data-action="tema-down" ${idx===state.abas.length-1?"disabled":""}>↓ descer</button>
           <button class="mini danger" data-action="tema-delete">🗑 excluir tema</button>
-        </div>
+        </div>`:""}
       </div>`;
 
   return `<div class="wrap">
     ${topBar()}
     ${cabecalho}
+    ${podeEditar()?"":convite("Este é o conteúdo da trilha oficial. Entre com o Google para editar os itens deste tema na <b>sua</b> cópia, sem mexer na de mais ninguém.")}
     <ul class="list">${items}</ul>
-    <button class="add-item" data-action="add">+ adicionar item</button>
+    ${podeEditar()?`<button class="add-item" data-action="add">+ adicionar item</button>`:""}
   </div>`;
 }
 
@@ -783,7 +939,6 @@ function viewResumo(){
 
 /* ============================ Render ============================ */
 function viewMural(){
-  const apelido = identidadeAutor();
   const n = mensagens.length;
 
   const lista = n
@@ -797,10 +952,14 @@ function viewMural(){
 
   const form = offline
     ? `<p class="foot" style="text-align:left">O mural precisa do banco. Em modo local não dá para ler nem enviar.</p>`
+    : !logado()
+    ? convite("Você pode ler o mural à vontade. Para deixar um recado, entre com o Google — assim o nome que assina é verificado e ninguém se passa por outra pessoa.")
     : `<form class="edit-form msg-form" data-form-msg="1">
-        <input name="autor" value="${esc(apelido)}" placeholder="Seu apelido" maxlength="40" autocomplete="off" required>
         <input name="texto" placeholder="Escreva um recado…" maxlength="500" autocomplete="off" required>
-        <div class="row"><button type="submit" class="btn primary">Enviar</button></div>
+        <div class="row">
+          <span class="msg-como">assinando como <b>${esc(meuNome())}</b></span>
+          <button type="submit" class="btn primary">Enviar</button>
+        </div>
       </form>`;
 
   return `<div class="wrap">
@@ -854,6 +1013,8 @@ document.addEventListener("click", async e=>{
   switch(action){
     case "voltar": if(history.length>1){ history.back(); } else { go("home"); } break;
     case "theme": toggleTheme(); break;
+    case "entrar": await entrar(); break;
+    case "sair": await sair(); break;
     case "export": exportJSON(); break;
     case "import": $("#fileIn").click(); break;
 
@@ -861,13 +1022,16 @@ document.addEventListener("click", async e=>{
       /* A trilha agora é compartilhada — zerar o conteúdo apagaria o de todos.
          Este botão passa a zerar só o SEU progresso. Trocar a trilha inteira
          vem na Etapa 4 (Importar). */
-      if(confirm("Zerar o seu progresso? Os temas compartilhados não são afetados.")){
+      if(confirm("Zerar o seu progresso? O conteúdo da trilha não é afetado.")){
+        const zerados = [...progresso];
         progresso.clear(); salvarProgresso(); aplicarProgresso(state); editingId=null; render();
+        await sincProgresso(zerados, false);
       } break;
 
     case "toggle":{
       const f=findItem(id); if(!f) break;
       f.it.feito = !f.it.feito; marcarItem(id, f.it.feito); render();
+      await sincProgresso([id], f.it.feito);
       break;
     }
 
@@ -876,9 +1040,19 @@ document.addEventListener("click", async e=>{
       const alvo = route()==="afazer"
         ? state.abas
         : [state.abas.find(a=>a.id===route())].filter(Boolean);
+
+      /* Compara o Set antes e depois em vez de assumir o que a função fez —
+         assim a regra que VOCÊ escreveu no marcarTodosDoTema continua valendo,
+         e o servidor recebe exatamente o que mudou. */
+      const antes = new Set(progresso);
       alvo.forEach(aba => marcarTodosDoTema(aba, marcar));
       aplicarProgresso(state);   // re-sincroniza os ✓ a partir do Set
       render();
+
+      const incluidos = [...progresso].filter(x=>!antes.has(x));
+      const removidos = [...antes].filter(x=>!progresso.has(x));
+      if(incluidos.length) await sincProgresso(incluidos, true);
+      if(removidos.length) await sincProgresso(removidos, false);
       break;
     }
 
@@ -906,7 +1080,7 @@ document.addEventListener("click", async e=>{
 
     case "tema-delete":{
       const aba = state.abas.find(a=>a.id===route()); if(!aba) break;
-      if(!confirm(`Excluir o tema "${aba.nome}" e seus ${aba.itens.length} itens?\n\nIsso apaga para TODOS que acessam a página.`)) break;
+      if(!confirm(`Excluir o tema "${aba.nome}" e seus ${aba.itens.length} itens?\n\nIsso afeta apenas a SUA trilha — a trilha oficial e a dos outros continuam intactas.`)) break;
       const dbId = aba.dbId;
       aba.itens.forEach(it=>progresso.delete(it.id)); salvarProgresso();
       state.abas = state.abas.filter(a=>a!==aba);
@@ -1003,15 +1177,15 @@ document.addEventListener("submit", async e=>{
   if(fm){
     e.preventDefault();
     if(offline){ alert("O mural precisa do banco. Em modo local não dá para enviar."); return; }
-    const autor = (fm.autor.value.trim() || "Anônimo").slice(0,40);
+    if(!logado()){ alert("Entre com o Google para deixar um recado."); return; }
+    const autor = (identidadeAutor() || "Anônimo").slice(0,40);
     const texto = fm.texto.value.trim().slice(0,500);
     if(!texto) return;
-    salvarApelido(autor);
     fm.texto.value = "";
     try{
       const [row] = await sbFetch("mensagens", {
         method:"POST", headers:{ "Prefer":"return=representation" },
-        body: JSON.stringify({ autor, texto })
+        body: JSON.stringify({ autor, texto, user_id: sessao.user.id })
       });
       mensagens.unshift(row);
       render();
@@ -1081,7 +1255,7 @@ $("#fileIn").addEventListener("change", e=>{
     const nItens = d.abas.reduce((n,a)=>n+((a.itens&&a.itens.length)||0), 0);
     const ok = confirm(
       `Substituir a trilha inteira por ${d.abas.length} temas e ${nItens} itens?\n\n`+
-      `Isso APAGA a trilha atual para TODOS que acessam a página.\n`+
+      `Isso APAGA a sua trilha atual (só a sua) e põe esta no lugar.\n`+
       `Se quiser poder voltar atrás, cancele e clique em Exportar antes.`
     );
     if(!ok){ e.target.value=""; return; }
@@ -1109,11 +1283,33 @@ applyTheme((()=>{ try{ return localStorage.getItem(THEME_KEY)||"dark"; }catch(e)
 render();   // pinta o "carregando" antes do primeiro fetch
 
 (async ()=>{
+  if(sbClient){
+    /* getSession() já espera o SDK trocar o ?code= do Google por uma sessão. */
+    try{ const { data } = await sbClient.auth.getSession(); sessao = data && data.session || null; }
+    catch(e){ console.error("Sessão:", e); }
+
+    /* Restaura a rota de onde a pessoa saiu para logar. */
+    try{
+      const voltar = sessionStorage.getItem(VOLTAR_KEY);
+      if(voltar){ sessionStorage.removeItem(VOLTAR_KEY); if(voltar && voltar!==location.hash) location.hash = voltar; }
+    }catch(e){}
+
+    sbClient.auth.onAuthStateChange((_evt, s)=>{
+      const antes = sessao && sessao.user ? sessao.user.id : null;
+      const agora = s && s.user ? s.user.id : null;
+      sessao = s;
+      /* Só recarrega quando o usuário realmente muda — renovação de token
+         dispara este evento o tempo todo e não deveria repintar a tela. */
+      if(authPronto && antes !== agora) recarregar();
+    });
+  }
+
   state = await load();
   carregando = false;
   if(route()==="mural") await carregarMensagens();
   render();
   ajustarPollMural();
+  authPronto = true;
 })();
 </script>
 </body>

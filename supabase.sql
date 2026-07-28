@@ -5,6 +5,13 @@
 --  É seguro rodar mais de uma vez: o seed no fim tem proteção contra
 --  duplicar os dados.
 --
+--  ⛔ NÃO RODE ESTE ARQUIVO DEPOIS DO supabase-contas.sql ⛔
+--  As policies daqui são ABERTAS (qualquer visitante edita e apaga tudo).
+--  Elas foram substituídas pelas policies por dono do supabase-contas.sql.
+--  Como o RLS combina policies com OU, recriar as daqui reabre o banco
+--  inteiro sem gerar nenhum erro nem aviso.
+--  Se rodar por engano: rode o supabase-contas.sql de novo em seguida.
+--
 --  Modelo de dados:
 --    temas     → os estágios da trilha            (compartilhado por todos)
 --    itens     → o que estudar dentro de cada tema (compartilhado por todos)

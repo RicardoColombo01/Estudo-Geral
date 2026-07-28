@@ -162,6 +162,34 @@ button{font-family:inherit}
 .rcard{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px}
 .rcard h4{margin:0 0 14px; font-family:var(--font-mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent)}
 .rcard.wide{grid-column:1 / -1}
+.rcard-hint{margin:0 0 14px; font-size:13px; color:var(--muted)}
+
+/* ---- Sequência ---- */
+.streak{display:flex; align-items:baseline; gap:10px}
+.streak b{font-size:44px; line-height:1; color:var(--muted)}
+.streak.on b{color:var(--done)}
+.streak span{font-size:13.5px; color:var(--ink-dim)}
+.streak-sub{display:flex; gap:22px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft)}
+.streak-sub div{display:flex; flex-direction:column; gap:2px}
+.streak-sub b{font-size:16px; color:var(--ink)}
+.streak-sub span{font-size:11.5px; color:var(--muted)}
+
+/* ---- Mapa de atividade ---- */
+/* Colunas = semanas, 7 linhas = domingo a sábado. O grid-auto-flow:column é o
+   que faz 84 casas em sequência virarem 12 semanas sem nenhum cálculo no JS. */
+.heat{display:grid; grid-auto-flow:column; grid-template-rows:repeat(7,1fr); gap:3px}
+.heat .hc{aspect-ratio:1; border-radius:3px; background:var(--line-soft)}
+.heat .hc.n1{background:color-mix(in srgb, var(--done) 35%, var(--line-soft))}
+.heat .hc.n2{background:color-mix(in srgb, var(--done) 65%, var(--line-soft))}
+.heat .hc.n3{background:var(--done)}
+.heat .hc.fut{opacity:.3}
+.heat-foot{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  margin-top:12px; font-size:11.5px; color:var(--muted)}
+.heat-leg{display:inline-flex; align-items:center; gap:3px}
+.heat-leg .hc{width:10px; height:10px; border-radius:2px; background:var(--line-soft)}
+.heat-leg .hc.n1{background:color-mix(in srgb, var(--done) 35%, var(--line-soft))}
+.heat-leg .hc.n2{background:color-mix(in srgb, var(--done) 65%, var(--line-soft))}
+.heat-leg .hc.n3{background:var(--done)}
 .tprog{display:flex; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid var(--line-soft)}
 .tprog:last-child{border-bottom:0}
 .tprog .tp-emoji{font-size:16px; width:22px; text-align:center}
@@ -474,17 +502,40 @@ function lerProgressoLocal(){
 }
 let progresso = lerProgressoLocal();
 
+/* Quando cada item foi concluído (id → ISO). Companheiro do Set, NÃO substituto:
+   o Set continua sendo a única fonte da verdade do ✓, e este Map é só enfeite
+   informativo. Se ele estiver vazio ou incompleto, a tela ainda funciona.
+
+   Só existe para quem está logado. O localStorage do visitante guarda apenas
+   ids, sem data — e inventar uma seria mentir sobre quando você estudou. */
+let progressoEm = new Map();
+
 function salvarProgresso(){
   if(logado()) return;   // logado, a verdade mora no banco — não duplicar aqui
   try{ localStorage.setItem(PROG_KEY, JSON.stringify([...progresso])); }catch(e){}
 }
-function marcarItem(id, feito){ feito ? progresso.add(id) : progresso.delete(id); salvarProgresso(); }
+function marcarItem(id, feito){
+  if(feito){
+    progresso.add(id);
+    /* Data otimista, só se ainda não houver uma: o upsert do servidor manda
+       apenas item_id e user_id, então o concluido_em original sobrevive a um
+       segundo POST. Sobrescrever aqui faria a tela discordar do banco. */
+    if(logado() && !progressoEm.has(id)) progressoEm.set(id, new Date().toISOString());
+  } else {
+    progresso.delete(id);
+    progressoEm.delete(id);
+  }
+  salvarProgresso();
+}
 function aplicarProgresso(st){ st.abas.forEach(a=>a.itens.forEach(it=>{ it.feito = progresso.has(it.id); })); return st; }
 
 async function carregarProgresso(){
   if(!logado()) return;
-  const linhas = await sbFetch("progresso?select=item_id");
-  progresso = new Set(linhas.map(l=>l.item_id));
+  /* concluido_em já era gravado desde a migração de contas (default now()) —
+     esta é a primeira vez que alguém lê. Nenhum SQL novo foi preciso. */
+  const linhas = await sbFetch("progresso?select=item_id,concluido_em");
+  progresso   = new Set(linhas.map(l=>l.item_id));
+  progressoEm = new Map(linhas.map(l=>[l.item_id, l.concluido_em]));
 }
 
 /* Manda ao banco em UMA requisição, não uma por item. O user_id vai explícito
@@ -586,6 +637,67 @@ function migrarProgressoAntigo(st){
   try{ localStorage.setItem(MIGR_KEY,"1"); }catch(e){}
 }
 
+/* ------------------------ Datas e sequência ------------------------ */
+const MES_CURTO = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+
+/* "07/mar" — curto de propósito: cabe no selo ao lado do ✓ sem quebrar a linha. */
+function diaCurto(iso){
+  const d = new Date(iso);
+  return isNaN(d) ? "" : `${String(d.getDate()).padStart(2,"0")}/${MES_CURTO[d.getMonth()]}`;
+}
+
+/* Identidade de um DIA, no fuso do aparelho.
+   Isto não é preciosismo: concluido_em é timestamptz, guardado em UTC. Estudar
+   às 21h em São Paulo é 00h do dia SEGUINTE em UTC. Contar por UTC partiria uma
+   única noite de estudo em dois dias e inventaria uma sequência que não houve. */
+function chaveDia(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+/* Dia → quantos itens você concluiu nele. O mapa de atividade usa a contagem
+   para a intensidade; a sequência usa só as chaves. */
+function diasDeEstudo(){
+  const m = new Map();
+  progressoEm.forEach(iso=>{
+    const d = new Date(iso);
+    if(isNaN(d)) return;
+    const k = chaveDia(d);
+    m.set(k, (m.get(k)||0) + 1);
+  });
+  return m;
+}
+
+/* =====================================================================
+   Dias consecutivos com pelo menos uma conclusão — o número grande do
+   card "Sequência".
+
+     dias → Set de chaves "AAAA-MM-DD" com estudo (só os dias que houve)
+     hoje → Date de agora, recebido de fora para poder ser testado
+
+   Duas regras, e as duas foram escolhidas de propósito:
+
+   1. HOJE AINDA CONTA. Não estudou hoje? A contagem começa por ontem em
+      vez de zerar. O preço é um número "adiantado" — mostra 5 quando você
+      cumpriu 4 — e ele se acerta sozinho: se o dia terminar sem estudo,
+      amanhã a sequência cai de verdade.
+
+   2. QUALQUER BURACO ROMPE, inclusive fim de semana. A alternativa
+      (perdoar sábado e domingo) premiaria mais, mas viraria uma regra que
+      ninguém consegue explicar nem conferir de cabeça — e um número em que
+      você não confia não motiva.
+===================================================================== */
+function calcularSequencia(dias, hoje){
+  const d = new Date(hoje); d.setHours(0,0,0,0);
+  /* Tolerância do dia corrente: se você ainda não estudou HOJE, a contagem
+     começa por ONTEM em vez de zerar. Às 9h da manhã a sequência não deveria
+     estar morta — o dia ainda não acabou. Quem só estuda à noite seria punido
+     por doze horas todo santo dia. */
+  if(!dias.has(chaveDia(d))) d.setDate(d.getDate()-1);
+  let n = 0;
+  while(dias.has(chaveDia(d))){ n++; d.setDate(d.getDate()-1); }
+  return n;
+}
+
 /* ---------------------------- Carga ---------------------------- */
 async function load(){
   if(sbLigado()){
@@ -597,6 +709,7 @@ async function load(){
         await migrarProgressoParaConta(st);
       } else {
         progresso = lerProgressoLocal();   // sair de uma conta não deixa o ✓ dela na tela
+        progressoEm = new Map();           // nem as datas dela
         migrarProgressoAntigo(st);
       }
       return aplicarProgresso(st);
@@ -804,6 +917,14 @@ function convite(texto){
 
 function topBar(){ return `<div class="bar"><button class="ghost back" data-action="voltar">← Voltar</button><span class="spacer"></span>${contaBtn()}${themeBtn()}</div>`; }
 
+/* O selo do item concluído. Sem data (visitante, ou item marcado antes de a
+   coluna existir) ele volta a ser exatamente o que era — nada quebra. */
+function selo(id){
+  const iso = progressoEm.get(id);
+  const dt  = iso ? diaCurto(iso) : "";
+  return `<span class="pill-done">✓ pronto${dt?` · ${dt}`:""}</span>`;
+}
+
 function viewStage(idx){
   const a = state.abas[idx]; const s = stats(a);
   let items = a.itens.map(it=>{
@@ -820,7 +941,7 @@ function viewStage(idx){
       <div class="item-body">
         <p class="item-text">${esc(it.texto)}</p>
         ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
-        ${it.feito?`<span class="pill-done">✓ pronto</span>`:""}
+        ${it.feito?selo(it.id):""}
       </div>
       ${podeEditar()?`<div class="item-actions"><button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>`:`<span></span>`}
     </li>`;
@@ -896,8 +1017,56 @@ function viewAfazer(){
   return `<div class="wrap">${topBar()}${head}${body}</div>`;
 }
 
+/* Card da sequência. Deslogado não há data nenhuma para mostrar — em vez de
+   um zero que parece derrota, explica por quê e convida a entrar. */
+function cardSequencia(dias){
+  if(!logado()){
+    return `<div class="rcard"><h4>Sequência</h4>
+      <p class="rcard-hint">As datas ficam na sua conta. Sem login, este navegador guarda só o ✓ — não o <b>quando</b>.</p>
+      ${convite("Entre com o Google para acompanhar seus dias seguidos de estudo.")}</div>`;
+  }
+  const seq = calcularSequencia(new Set(dias.keys()), new Date());
+  let ultimo = 0;
+  progressoEm.forEach(iso=>{ const t = +new Date(iso); if(t > ultimo) ultimo = t; });
+  return `<div class="rcard"><h4>Sequência</h4>
+    <div class="streak ${seq?"on":""}">
+      <b class="mono">${seq}</b>
+      <span>dia${seq===1?"":"s"} seguidos</span>
+    </div>
+    <div class="streak-sub">
+      <div><b class="mono">${dias.size}</b><span>dias com estudo</span></div>
+      <div><b class="mono">${ultimo?diaCurto(new Date(ultimo).toISOString()):"—"}</b><span>último estudo</span></div>
+    </div></div>`;
+}
+
+/* Mapa de atividade: 12 semanas × 7 dias, um CSS grid puro e nenhuma
+   biblioteca. As colunas são semanas (domingo em cima), por isso o intervalo
+   começa num domingo e termina no sábado da semana atual. */
+function cardAtividade(dias){
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const fim  = new Date(hoje); fim.setDate(fim.getDate() + (6 - fim.getDay()));   // sábado desta semana
+  const ini  = new Date(fim);  ini.setDate(ini.getDate() - (12*7 - 1));           // 84 casas, começa num domingo
+
+  const cel = [];
+  for(let d = new Date(ini); d <= fim; d.setDate(d.getDate()+1)){
+    const k = chaveDia(d), n = dias.get(k) || 0;
+    const nivel  = !n ? "" : n===1 ? "n1" : n<=3 ? "n2" : "n3";
+    const rotulo = `${String(d.getDate()).padStart(2,"0")}/${MES_CURTO[d.getMonth()]}`;
+    cel.push(`<i class="hc ${nivel} ${d>hoje?"fut":""}" title="${rotulo} — ${n} ${n===1?"item":"itens"}"></i>`);
+  }
+
+  const total = [...dias.values()].reduce((s,n)=>s+n, 0);
+  return `<div class="rcard"><h4>Atividade — 12 semanas</h4>
+    <div class="heat">${cel.join("")}</div>
+    <div class="heat-foot">
+      <span>${logado() ? `${total} conclusõe${total===1?"":"s"} no período` : "entre para registrar datas"}</span>
+      <span class="heat-leg">menos <i class="hc"></i><i class="hc n1"></i><i class="hc n2"></i><i class="hc n3"></i> mais</span>
+    </div></div>`;
+}
+
 function viewResumo(){
   const ov = totals();
+  const dias = diasDeEstudo();
   const pend = [];
   state.abas.forEach(a=>a.itens.forEach(i=>{ if(!i.feito) pend.push({tag:a.emoji+" "+a.nome, texto:i.texto}); }));
 
@@ -935,6 +1104,8 @@ function viewResumo(){
     <div class="grid-2">
       <div class="rcard"><h4>Progresso por estágio</h4>${bars}</div>
       <div class="rcard"><h4>Próximos passos</h4>${pendHtml}</div>
+      ${cardSequencia(dias)}
+      ${cardAtividade(dias)}
       <div class="rcard wide"><h4>Cronograma — ~10 semanas (≈1h/dia)</h4>
         <table class="cron"><thead><tr><th>Período</th><th>Foco</th></tr></thead><tbody>${crono}</tbody></table></div>
     </div>
@@ -1028,7 +1199,8 @@ document.addEventListener("click", async e=>{
          vem na Etapa 4 (Importar). */
       if(confirm("Zerar o seu progresso? O conteúdo da trilha não é afetado.")){
         const zerados = [...progresso];
-        progresso.clear(); salvarProgresso(); aplicarProgresso(state); editingId=null; render();
+        progresso.clear(); progressoEm.clear();
+        salvarProgresso(); aplicarProgresso(state); editingId=null; render();
         await sincProgresso(zerados, false);
       } break;
 

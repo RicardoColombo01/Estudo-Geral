@@ -10,7 +10,10 @@ dependência de CDN. A diferença é que agora ele conversa com um banco no **Su
 ## ✨ O que dá para fazer
 
 - **Navegar por temas** — cada um é um estágio (01, 02, 03…) + Visão geral e A fazer.
-- **Marcar itens como concluídos** → selo **✓ pronto** e texto riscado.
+- **Marcar itens como concluídos** → selo **✓ pronto · 27/jul** e texto riscado.
+  A data aparece para quem está logado; deslogado o navegador guarda só o ✓.
+- **Sequência e atividade** na Visão geral — dias seguidos de estudo e um mapa
+  das últimas 12 semanas.
 - **Concluir o tema inteiro** de uma vez, com um botão que também desfaz.
 - **Editar, adicionar e excluir** itens.
 - **Gerenciar temas** — criar, renomear, trocar emoji/resumo, reordenar e excluir.

@@ -423,7 +423,11 @@ async function sbFetch(path, opts={}){
     }
   });
   if(!r.ok) throw new Error(`${r.status} — ${await r.text()}`);
-  return r.status===204 ? null : r.json();
+  /* Nem toda resposta de sucesso traz JSON: DELETE devolve 204 sem corpo, e
+     um POST com "Prefer: return=minimal" devolve 201 também sem corpo. Testar
+     o corpo é mais confiável do que tentar adivinhar pelo código de status. */
+  const corpo = await r.text();
+  return corpo ? JSON.parse(corpo) : null;
 }
 
 /* Envia uma escrita ao servidor. Se falhar, avisa e recarrega do banco para a

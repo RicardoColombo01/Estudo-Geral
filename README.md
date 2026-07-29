@@ -21,6 +21,8 @@ dependência de CDN. A diferença é que agora ele conversa com um banco no **Su
 - **Mural de recados** compartilhado, **em tempo real** — recado enviado numa janela aparece
   na outra na hora.
 - **Anotações por item** (📝), com o que você aprendeu, links e dúvidas.
+- **Materiais de estudo** (📎) por tema — cursos, vídeos, artigos e livros —, com uma
+  tela que junta tudo e filtra por tipo.
 - **Novidades da trilha oficial**: quando ela melhora, você escolhe o que trazer.
 - **Instalar no celular** — é um PWA, abre em tela cheia pelo ícone.
 - **Tema claro/escuro** e layout responsivo.
@@ -134,6 +136,22 @@ Cada item tem um botão **📝**. A nota fica na **sua** cópia, aparece abaixo 
 ganha um ponto quando existe nota, para você não precisar abrir para descobrir. Limite de
 2000 caracteres, garantido pelo banco.
 
+## 📎 Materiais de estudo
+
+Cada tema tem uma seção **📎 Materiais e links** no fim da página: guarde ali o curso, o
+vídeo, o artigo ou o livro que ajudou naquele assunto. Cada material tem **título, link,
+tipo** (vídeo/curso/artigo/livro/outro) e uma **observação** — o "por que salvei isso".
+
+O card **📎 Materiais** na home abre a tela que junta os materiais de todos os temas,
+agrupados na ordem da trilha e com filtro por tipo.
+
+Materiais são da **sua** cópia, entram no modelo oficial (modo admin) e chegam a quem já
+tem conta como **novidade**, igual a temas e itens.
+
+> 🔒 Só endereços `http` e `https` viram link clicável. Qualquer outro esquema (como
+> `javascript:`) aparece como texto e não abre — é o que impede um link malicioso de
+> executar código na página.
+
 ## 📱 Instalar no celular
 
 O app é um PWA. No Chrome do Android: menu → **Instalar app**. No iPhone, Safari →
@@ -163,6 +181,7 @@ estudos-ia/
   supabase.sql           → schema base: 3 tabelas, RLS e seed dos 8 temas
   supabase-contas.sql    → migração para contas: dono, progresso, policies e trigger
   supabase-evolucao.sql  → realtime do mural, admins, novidades do modelo e notas
+  supabase-materiais.sql → materiais de estudo por tema
   manifest.json          → PWA: nome, cores e ícones
   sw.js                  → service worker (só o casco; nunca os dados)
   icon-192.png           → ícone do app
@@ -172,8 +191,9 @@ estudos-ia/
   .gitignore
 ```
 
-Os três `.sql` rodam **em ordem** e só uma vez cada: `supabase.sql` →
-`supabase-contas.sql` → `supabase-evolucao.sql`. Nunca voltar atrás — o primeiro recria
-policies abertas.
+Os quatro `.sql` rodam **em ordem** e só uma vez cada: `supabase.sql` →
+`supabase-contas.sql` → `supabase-evolucao.sql` → `supabase-materiais.sql`. Nunca voltar
+atrás — o primeiro recria policies abertas, e o terceiro redefine o trigger de cadastro
+sem a cópia dos materiais.
 
 Feito para estudar com prazer. Bons estudos! 🚀

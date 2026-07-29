@@ -20,8 +20,12 @@ Login: **Google OAuth**. Dono: RicardoColombo01.
 - Visitante sem login: lê a trilha oficial e o mural, não escreve nada
 - Gestão de temas: criar, editar, reordenar, excluir, substituir por JSON
 - Concluir/desmarcar um tema inteiro
-- Data no selo do item, sequência de dias e mapa de atividade de 12 semanas *(Fase 2,
-  commit `6438a72` — no ar, ainda não conferido pelo Ricardo no navegador)*
+- Data no selo do item, sequência de dias e mapa de atividade de 12 semanas *(Fase 2)*
+- Mural em tempo real, modo admin do modelo, novidades do modelo, anotações por item e
+  PWA instalável *(Fases 3–7; o Ricardo confirmou em 2026-07-28 que rodou o
+  `supabase-evolucao.sql` e instalou o app no celular)*
+- **Materiais de estudo** por tema + tela `#materiais` *(no ar; depende do
+  `supabase-materiais.sql`, que ele ainda precisa rodar)*
 
 ## A regra que organiza tudo
 
@@ -52,6 +56,7 @@ Três decisões fazem o cliente quase não precisar saber disso:
 | Modelo oficial | `modoModelo`, `faixaModelo()`, ação `modo-modelo` |
 | Novidades | `carregarNovidades()`, `adicionarNovidades()`, `dispensarNovidades()`, `viewNovidades()` |
 | Notas | `blocoNota()`, `acoesItem()`, `focusNota()`, ramo `[data-form-nota]` do submit |
+| Materiais | `TIPOS_MAT`, `urlSegura()`, `dominio()`, `blocoMateriais()`, `linhaMaterial()`, `viewMateriais()`, `acharMaterial()` |
 | Mural | `ligarRealtimeMural()`, `desligarRealtimeMural()`, `ajustarMural()`, `digitandoNoMural()` |
 | Migrações | `migrarProgressoAntigo()`, `migrarProgressoParaConta()` — casam por **texto** |
 | Telas | `viewHome()`, `viewStage()`, `viewAfazer()`, `viewResumo()`, `viewMural()`, `render()` |
@@ -81,6 +86,7 @@ esse mesmo padrão.
 | `supabase.sql` | Schema base. ⛔ **Nunca rodar depois do `supabase-contas.sql`** — recria policies abertas |
 | `supabase-contas.sql` | Migração para contas: dono, `progresso`, policies, trigger |
 | `supabase-evolucao.sql` | Fases 3–6: realtime, `admins`, `origem_id`+`modelo_dispensado`, `nota`. Só adiciona policies |
+| `supabase-materiais.sql` | Tabela `materiais` (links por tema) + trigger de cadastro copiando materiais |
 | `manifest.json`, `sw.js`, `icon-*.png` | PWA. O `sw.js` nunca intercepta `supabase.co` |
 | `data.json` | Backup versionável (está com a semente antiga; regerar pelo Exportar) |
 
@@ -98,6 +104,13 @@ esse mesmo padrão.
   devolveria `#access_token=` e atropelaria o `route()`.
 - **SDK via `<script src>` UMD, nunca `type="module"`** — módulo ES quebra o `file://`, e o
   duplo clique no arquivo precisa continuar funcionando.
+- **URL digitada por usuário é vetor de XSS.** `esc()` protege as aspas do atributo, mas
+  não o **esquema**: `javascript:...` num `href` executa. Todo endereço que virar link
+  passa por `urlSegura()`, que só aceita `http:` e `https:` — o resto vira texto. Vale
+  para qualquer campo de link novo daqui para a frente.
+- **`supabase-materiais.sql` redefine `criar_trilha_do_usuario()`.** Rodar o
+  `supabase-evolucao.sql` depois dele faz contas novas nascerem sem os materiais — sem
+  erro nenhum, só faltando. A ordem dos quatro `.sql` é sempre para frente.
 - **Admin também pode apagar o modelo.** Desde a Fase 4 o RLS autoriza o admin a escrever nas
   linhas com `user_id is null`. Todo `DELETE` em massa precisa de filtro **explícito** de dono
   — `substituirTrilha()` usava `id=not.is.null` confiando no RLS e apagaria a trilha oficial
@@ -135,18 +148,25 @@ Checar sintaxe do JS sem abrir navegador: extrair o último bloco `<script>` e `
 |---|---|---|
 | 1 | publicar consentimento do Google | pendente — **só o Ricardo faz**, no Google Cloud Console |
 | 2 | datas e sequência | ✅ 2026-07-28, commit `6438a72` |
-| 3 | mural em tempo real | ✅ código no ar; **falta rodar a seção 3 do SQL** |
-| 4 | admin do modelo oficial | ✅ código no ar; **falta rodar a seção 4 do SQL** (e pôr o e-mail dele) |
-| 5 | puxar novidades do modelo | ✅ código no ar; **falta rodar a seção 5 do SQL** |
-| 6 | anotações por item | ✅ código no ar; **falta rodar a seção 6 do SQL** |
-| 7 | PWA | ✅ 2026-07-28, completa (não depende de SQL) |
+| 3 | mural em tempo real | ✅ 2026-07-28 |
+| 4 | admin do modelo oficial | ✅ 2026-07-28 |
+| 5 | puxar novidades do modelo | ✅ 2026-07-28 |
+| 6 | anotações por item | ✅ 2026-07-28 |
+| 7 | PWA | ✅ 2026-07-28, instalado no celular |
 
-⚠️ **O `supabase-evolucao.sql` ainda não foi rodado no banco** (conferido em 2026-07-28:
-`admins` e `modelo_dispensado` dão 404, `nota` e `origem_id` dão 400). Até rodar, cada
-recurso fica desligado sozinho — ver "degradação" abaixo.
+Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirmou:
+"nada travou, e o aplicativo instalou").
 
-> ⚠️ **NÃO EXECUTAR NENHUMA FASE SEM O RICARDO AUTORIZAR.** Ele pediu explicitamente para
-> deixar pronto e só realizar quando voltar e mandar. Uma fase por vez, commit próprio.
+**Depois disso**, em `C:\Users\ricar\.claude\plans\replicated-conjuring-lagoon.md`:
+materiais de estudo (**feito**, falta ele rodar o `supabase-materiais.sql`), e a avaliação
+escrita de três ideias que ele levantou — projetos pessoais, projetos em grupo tipo Notion,
+e IA de estudo. Vale ler aquele arquivo antes de propor qualquer uma:
+
+- **projetos pessoais** encaixam no padrão atual sem regra nova — é a próxima natural;
+- **grupo** quebra a regra `user_id = auth.uid()` e precisa de `grupo_membros` + convites;
+- **IA** exige Edge Function guardando a chave da Anthropic (nunca no navegador).
+
+> ⚠️ **NÃO EXECUTAR NADA DESSAS TRÊS SEM O RICARDO AUTORIZAR.**
 
 ## Como o Ricardo trabalha
 

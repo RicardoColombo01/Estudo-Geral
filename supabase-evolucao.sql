@@ -108,7 +108,7 @@ create policy "itens: admin edita o modelo" on public.itens for all
 --  no site). Sem isto, ninguém é admin e a seção 4 não faz nada.
 
 insert into public.admins (user_id)
-select id from auth.users where email = 'SEU-EMAIL-AQUI@gmail.com'
+select id from auth.users where email = 'ri.amcolombo@gmail.com'
 on conflict (user_id) do nothing;
 
 
@@ -188,6 +188,11 @@ create policy "dispensado: desfazer" on public.modelo_dispensado for delete
 -- --- o trigger de cadastro agora grava a origem -----------------------
 --  ⚠ Se esta função der erro, o CADASTRO INTEIRO falha e ninguém novo
 --  consegue entrar. Teste com uma conta descartável antes de divulgar.
+--
+--  ⚠ O supabase-materiais.sql redefine esta MESMA função com um insert a
+--  mais (copiar os materiais). Se você rodar este arquivo depois daquele,
+--  a cópia dos materiais some e contas novas nascem sem os links — sem
+--  erro nenhum. Rodou este? Rode o supabase-materiais.sql em seguida.
 
 create or replace function public.criar_trilha_do_usuario()
 returns trigger

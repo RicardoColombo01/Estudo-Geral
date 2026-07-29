@@ -97,6 +97,8 @@ coisas offline.
 | `supabase-contas.sql` | Migração para contas: dono, `progresso`, policies, trigger |
 | `supabase-evolucao.sql` | Fases 3–6: realtime, `admins`, `origem_id`+`modelo_dispensado`, `nota`. Só adiciona policies |
 | `supabase-materiais.sql` | Tabela `materiais` (links por tema) + trigger de cadastro copiando materiais |
+| `supabase-ia.sql` | `ia_uso` (freio + extrato) e `ia_cartoes`. `registrar_uso_ia()` só para a service_role |
+| `supabase/functions/ia/index.ts` | Edge Function. **O único lugar com a chave da Anthropic** |
 | `manifest.json`, `sw.js`, `icon-*.png` | PWA. O `sw.js` nunca intercepta `supabase.co` |
 | `data.json` | Backup versionável (está com a semente antiga; regerar pelo Exportar) |
 
@@ -114,6 +116,16 @@ coisas offline.
   devolveria `#access_token=` e atropelaria o `route()`.
 - **SDK via `<script src>` UMD, nunca `type="module"`** — módulo ES quebra o `file://`, e o
   duplo clique no arquivo precisa continuar funcionando.
+- **A chave da Anthropic NUNCA pode ir para o `index.html`.** A anon key do Supabase é
+  pública porque o RLS a protege; a da Anthropic não tem nada atrás dela — quem abrir o
+  "ver fonte" gasta o dinheiro dele. Ela vive só como secret da Edge Function.
+- **Na Edge Function, dois clientes com papéis diferentes.** O contexto é lido com o **JWT
+  de quem chamou** (o RLS continua valendo, e ninguém pede a trilha de outra conta); o
+  contador de uso é escrito com a **service_role** (se o usuário pudesse escrever em
+  `ia_uso`, zeraria o próprio freio). Trocar um pelo outro abre um buraco em silêncio.
+- **`revoke` sem `grant` depois derruba a service_role.** `revoke all ... from public` tira
+  a permissão padrão de todo mundo, inclusive dela — por isso o `grant execute ... to
+  service_role` logo em seguida não é redundância.
 - **Uma falha de rede na abertura envenenava a sessão inteira.** `detectarColunas()`
   marcava `colunasDetectadas = true` antes de sondar, então "sem rede" virava "esta coluna
   não existe" e materiais/notas/novidades ficavam desligados até recarregar a página.
@@ -174,16 +186,22 @@ Checar sintaxe do JS sem abrir navegador: extrair o último bloco `<script>` e `
 Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirmou:
 "nada travou, e o aplicativo instalou").
 
-**Depois disso**, em `C:\Users\ricar\.claude\plans\replicated-conjuring-lagoon.md`:
-materiais de estudo (**feito**, falta ele rodar o `supabase-materiais.sql`), e a avaliação
-escrita de três ideias que ele levantou — projetos pessoais, projetos em grupo tipo Notion,
-e IA de estudo. Vale ler aquele arquivo antes de propor qualquer uma:
+**Depois disso** — plano aprovado em `C:\Users\ricar\.claude\plans\replicated-conjuring-lagoon.md`:
 
-- **projetos pessoais** encaixam no padrão atual sem regra nova — é a próxima natural;
-- **grupo** quebra a regra `user_id = auth.uid()` e precisa de `grupo_membros` + convites;
-- **IA** exige Edge Function guardando a chave da Anthropic (nunca no navegador).
+| | Estado |
+|---|---|
+| Materiais de estudo | ✅ no ar; **falta ele rodar o `supabase-materiais.sql`** |
+| App instalado offline (retry, retrato, fila) | ✅ 2026-07-28, commit `a250216` |
+| **IA — Fase 1** (SQL + Edge Function) | ✅ escrita; **bloqueada na chave da Anthropic, que ele ainda não tem** |
+| **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ⏳ próxima |
+| **IA — Fase 3** (`#revisar`, revisão espaçada) | ⏳ |
+| Quadro de projeto (pessoal → grupo) | ⏳ desenhado no plano, nada escrito |
 
-> ⚠️ **NÃO EXECUTAR NADA DESSAS TRÊS SEM O RICARDO AUTORIZAR.**
+O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,
+pomodoro, exportar caderno, push, desfazer). Vale ler antes de propor qualquer uma.
+
+> ⚠️ **NÃO SEGUIR PARA A PRÓXIMA FASE SEM O RICARDO AUTORIZAR.** Uma fase por vez,
+> commit próprio.
 
 ## Como o Ricardo trabalha
 

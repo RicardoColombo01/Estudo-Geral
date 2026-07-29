@@ -152,6 +152,51 @@ tem conta como **novidade**, igual a temas e itens.
 > `javascript:`) aparece como texto e não abre — é o que impede um link malicioso de
 > executar código na página.
 
+## ✨ IA de estudo (opcional, e desligada por padrão)
+
+O app pode usar a Claude para **buscar materiais**, **explicar um item**, **gerar cartões
+de revisão** e **conversar sobre o tema** — sempre com o contexto da *sua* trilha: o que
+você concluiu, quando, o que anotou e o que já salvou.
+
+Enquanto não estiver configurada, **os botões ✨ nem aparecem**. Nada quebra.
+
+### Como ligar
+
+> ⚠️ **Assinatura do claude.ai não serve.** A assinatura é do site/app; a API é cobrada
+> por uso, à parte. Ter uma não libera a outra.
+
+1. **Conta e crédito** — `console.anthropic.com` → **Billing** → adicionar crédito
+   (mínimo US$5) → **API keys** → criar a chave. Ela só aparece uma vez.
+2. **Banco** — rodar o `supabase-ia.sql` no SQL Editor.
+3. **Função** — no terminal, dentro da pasta do projeto:
+   ```bash
+   supabase functions deploy ia
+   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+   ```
+
+### Quanto custa
+
+Ordem de grandeza por ação (Claude Opus 5, US$5 por milhão de tokens de entrada e US$25 de
+saída):
+
+| Ação | ~custo |
+|---|---|
+| Explicar um item | US$0,03 |
+| Gerar cartões de uma anotação | US$0,05 |
+| Buscar materiais na web | US$0,10 **+ a cobrança por pesquisa** |
+
+A busca na web é cobrada **por pesquisa**, além dos tokens. Uso pessoal cabe folgado em
+US$5/mês. Há um **limite de 40 usos por dia por conta**, e a tabela `ia_uso` guarda o
+extrato — dá para conferir o gasto antes de a fatura chegar.
+
+### O que a IA não faz
+
+- **Não vê a chave.** Ela mora como *secret* na Edge Function; o navegador nunca a recebe.
+- **Não lê a trilha de outra pessoa.** A função consulta o banco com o **seu** login, então
+  o RLS vale igual.
+- **Não escreve no banco.** Tudo que ela devolve é proposta: você aceita ou dispensa, do
+  mesmo jeito que já faz com as novidades do modelo.
+
 ## 📱 Instalar no celular
 
 O app é um PWA. No Chrome do Android: menu → **Instalar app**. No iPhone, Safari →
@@ -194,6 +239,8 @@ estudos-ia/
   supabase-contas.sql    → migração para contas: dono, progresso, policies e trigger
   supabase-evolucao.sql  → realtime do mural, admins, novidades do modelo e notas
   supabase-materiais.sql → materiais de estudo por tema
+  supabase-ia.sql        → extrato/freio de uso da IA e cartões de revisão
+  supabase/functions/ia/ → Edge Function: o único lugar com a chave da Anthropic
   manifest.json          → PWA: nome, cores e ícones
   sw.js                  → service worker (só o casco; nunca os dados)
   icon-192.png           → ícone do app
@@ -203,8 +250,8 @@ estudos-ia/
   .gitignore
 ```
 
-Os quatro `.sql` rodam **em ordem** e só uma vez cada: `supabase.sql` →
-`supabase-contas.sql` → `supabase-evolucao.sql` → `supabase-materiais.sql`. Nunca voltar
+Os `.sql` rodam **em ordem** e só uma vez cada: `supabase.sql` → `supabase-contas.sql` →
+`supabase-evolucao.sql` → `supabase-materiais.sql` → `supabase-ia.sql`. Nunca voltar
 atrás — o primeiro recria policies abertas, e o terceiro redefine o trigger de cadastro
 sem a cópia dos materiais.
 

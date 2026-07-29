@@ -289,8 +289,14 @@ button{font-family:inherit}
 .chat-bolha{position:fixed; right:18px; bottom:18px; z-index:20; width:52px; height:52px; border-radius:50%;
   font-size:22px; cursor:pointer; border:1px solid var(--line); background:var(--panel); box-shadow:var(--shadow)}
 .chat-bolha:hover{border-color:var(--gold)}
+/* As duas linhas de max-height não são redundância. No celular, `vh` é
+   medido contra o viewport MAIOR — com a barra do navegador escondida —
+   então parte do painel fica embaixo da barra e some. `dvh` acompanha a
+   barra aparecendo e desaparecendo; a linha com `vh` fica antes como
+   reserva para navegador que não conhece `dvh`. */
 .chat-painel{position:fixed; right:14px; bottom:14px; z-index:20; width:min(420px, calc(100vw - 28px));
-  max-height:min(70vh, 560px); display:flex; flex-direction:column;
+  max-height:min(70vh, 560px);
+  max-height:min(70dvh, 560px); display:flex; flex-direction:column;
   background:var(--panel); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); overflow:hidden}
 .chat-topo{display:flex; align-items:center; gap:8px; padding:10px 12px; font-size:12.5px;
   color:var(--ink-dim); border-bottom:1px solid var(--line-soft)}
@@ -337,6 +343,28 @@ button{font-family:inherit}
   .home-head h1{font-size:30px}
   .grid-2{grid-template-columns:1fr}
   .cards{grid-template-columns:1fr}
+
+  /* ⚠ Aqui morava o pior defeito de leitura do app. O texto da IA e a
+     anotação renderizam dentro do .item-body, que é a coluna 1fr do
+     .item. A terceira coluna é `auto` e os .mini têm white-space:nowrap,
+     então ela NÃO encolhe; e .item-body{min-width:0} deixa o 1fr ser
+     esmagado até quase zero. Num aparelho de 360px: 330 de conteúdo − 32
+     de padding − 26 do ✓ − 28 dos gaps − ~198 dos quatro botões ≈ 46px
+     para o texto. No desktop sobra folga, então o defeito é invisível
+     para quem desenvolve — não quebra nada, só entrega ao texto o que
+     restou. Duas colunas no celular, e as ações descem para uma linha
+     própria de largura inteira: o texto vai de ~46px para ~244px. */
+  .item{grid-template-columns:26px 1fr}
+  .nov-item{grid-template-columns:22px 1fr}   /* preserva o que já era */
+  .item-actions{grid-column:1 / -1; justify-content:flex-end; flex-wrap:wrap}
+  /* O <span></span> que acoesItem() devolve para quem não pode editar é
+     filho do grid: sem isto ele ocupa a 2ª linha e o gap abre 14px de
+     sobra embaixo do item. Só o último — o .check-vazio do modo modelo
+     também é um span vazio, e esse tem que continuar ocupando a coluna. */
+  .item > span:empty:last-child{display:none}
+
+  /* 13.5px é tamanho de rodapé, não de leitura longa em tela pequena. */
+  .ia-texto, .chat-msg p{font-size:15px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important}}
 </style>

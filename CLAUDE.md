@@ -188,6 +188,23 @@ coisas offline.
   `item_id` e `user_id`, então o `ON CONFLICT` não toca em `concluido_em`. Por isso
   `marcarItem()` só grava data otimista quando ainda não existe uma — sobrescrever faria a
   tela discordar do banco até o próximo F5.
+- **Coluna `1fr` ao lado de coluna `auto` é esmagada, sem erro nenhum.** `.item` é um grid
+  `26px 1fr auto`; todo texto longo (anotação, explicação da IA) mora no `1fr`, e a coluna
+  `auto` é a dos botões, que têm `white-space:nowrap` e por isso **não encolhem**. Com
+  `.item-body{min-width:0}`, o `1fr` cede tudo: num celular de 360px sobravam **~46px** para
+  o texto. **No desktop o defeito não existe**, então nunca aparece na tela de quem
+  desenvolve — é o tipo de coisa que só o dono do celular relata. Corrigido em 2026-07-29 no
+  `@media (max-width:640px)`: duas colunas, e `.item-actions{grid-column:1 / -1}` manda os
+  botões para uma linha própria. Qualquer coluna nova de ações segue essa regra.
+- **`vh` é a unidade errada no celular.** É medido contra o viewport **maior**, com a barra
+  do navegador escondida, então o elemento se estende por baixo da barra e a parte de baixo
+  some. `dvh` acompanha a barra. `.chat-painel` declara `vh` e `dvh` em sequência de
+  propósito — a primeira é reserva para navegador que não conhece a segunda.
+- **`:empty` também casa com o `.check-vazio`.** O `<span></span>` que `acoesItem()` devolve
+  para quem não pode editar precisa desaparecer no layout de duas colunas, senão o `gap`
+  abre 14px de sobra. Mas o placeholder do ✓ no modo modelo é igualmente um span vazio e
+  **tem** que continuar ocupando a coluna 1 — daí o seletor ser `span:empty:last-child`, não
+  `span:empty`.
 
 ## Verificação obrigatória depois de mexer em policy
 
@@ -235,27 +252,58 @@ Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirm
 O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,
 pomodoro, exportar caderno, push, desfazer). Vale ler antes de propor qualquer uma.
 
-**O que vem depois da IA** — plano escrito em 2026-07-29, em
-`C:\Users\ricar\.claude\plans\plano-depois-da-ia.md`. Ordem sugerida e aprovada por ele
-como plano (nada autorizado a construir ainda):
+### O que vem depois da IA — fila de trabalho
 
-| Ordem | | Esforço |
+Detalhamento em `C:\Users\ricar\.claude\plans\plano-depois-da-ia.md` (fora do repo). O
+essencial está aqui de propósito, para não depender daquele arquivo.
+
+> ⚠️ Nada abaixo está autorizado a construir. O Ricardo escolhe um item por vez.
+
+**Já feito:** legibilidade da IA no celular ✅ 2026-07-29 — ver as armadilhas de grid e de
+`dvh` na lista acima. Falta ele confirmar no aparelho.
+
+**Próximos, na ordem sugerida:**
+
+| | | Esforço |
 |---|---|---|
-| 1º | **Legibilidade da IA no celular** — o texto cai numa coluna de ~46px; ver abaixo | 2 linhas de CSS |
-| 2º | **Exercitar cartões e `#revisar`** — escritos em 2026-07-28 e **nunca executados**; inclui as 3 verificações que dependiam de a IA responder, entre elas o teste de RLS no contexto | zero código |
-| 3º | **Botão 🔍 no material sem link** — patch do vão que a perda da busca na web abriu | ~5 linhas |
-| 4º | **Busca global** (itens, anotações, materiais) — puro cliente | baixo |
-| 5º | **Quadro de projeto** (Fase 2a → 2b do plano antigo) | grande |
+| 1 | **Exercitar cartões e `#revisar`** — escritos em 2026-07-28 e **nunca executados uma vez**, porque a IA não respondia. Inclui as 3 verificações que dependiam disso: o freio de 12 recusa?, nada vira linha sem aceite, e **contexto respeita RLS** | zero código |
+| 2 | **Botão 🔍 no material sem link** — abre `google.com/search?q=<título + tema>`. Patch do vão que a perda da busca na web abriu. `encodeURIComponent` é obrigatório; o botão fica fora do `podeEditar()`, porque buscar não é editar | ~5 linhas |
+| 3 | **Busca global** — um campo procurando em tema, item, detalhe, **anotação** e material. Puro cliente, o `state` já tem tudo. Precisa de um `normalizar()` com `NFD` + remover diacrítico, senão "revisao" não acha "revisão". Ao destacar o trecho casado: `esc()` **primeiro**, marcação depois | baixo |
+| 4 | **Quadro de projeto** — Fase 2a (`projetos`/`tarefas`/`tarefa_comentarios`, `grupo_id` nulo = pessoal) e depois 2b (`grupos`, entrar por código, `eh_membro()` `security definer`). Desenho completo no plano antigo | grande |
 
-**O defeito de layout, porque é sutil e vai reaparecer:** `.item` é um grid
-`26px 1fr auto`, e o texto da IA renderiza dentro do `1fr`. Os botões da coluna `auto` têm
-`white-space:nowrap` e **não encolhem**; `.item-body{min-width:0}` deixa o `1fr` ser
-esmagado até zero. Num celular de 360px sobram **~46px** para o texto — e no desktop o
-defeito não existe, então não aparece na tela de quem desenvolve. Correção no
-`@media (max-width:640px)` que já existe: `.item{grid-template-columns:26px 1fr}` mais
-`.item-actions{grid-column:1 / -1}`. Vale para anotação e material também, pelo mesmo motivo.
-Relacionado: `vh` no celular é medido contra o viewport **maior** (barra do navegador
-escondida) — `.chat-painel` deve usar `dvh`.
+**Uma dependência que vale resolver cedo:** as verificações de RLS exigem uma **segunda
+conta Google** — a versão fraca (uuid inventado → 404) não distingue "o RLS filtrou" de
+"esse id não existe". É a mesma conta que a Fase 2b vai precisar para o teste "a conta B não
+vê o projeto pessoal da conta A". Cuidado ao ler o resultado: tema do modelo oficial
+(`user_id is null`) é público de propósito, então devolver contexto dele é o comportamento
+certo — o teste tem que usar cópia privada da outra conta.
+
+### Ideias prontas para pegar (esforço baixo, valor claro)
+
+| | Ideia | Por que |
+|---|---|---|
+| 1 | **Mostrar quanto resta da IA hoje** | O `ping` já devolve `usadas`/`limite` e ninguém vê. Com o freio em 12, o usuário encosta nele — e "não sei por que o ✨ parou" é pior que qualquer limite |
+| 2 | **Terceiro grau no `#revisar`** | Hoje "Ainda não sei" zera o intervalo para 1 dia, punindo igual quem errou tudo e quem quase acertou. Um "mais ou menos" que corta pela metade em vez de zerar |
+| 3 | **Estatística de acerto por tema** | `ia_cartoes` já guarda `acertos`/`erros`. "Você erra mais em Git" é a informação mais acionável do app, e o dado está lá parado |
+| 4 | **Plano da semana** (ação nova de IA) | Infraestrutura toda pronta: um prompt, um esquema, um botão. Mandar `calcularSequencia()` e os pendentes **calculados** — a IA prioriza, não conta |
+| 5 | **Virar cartão a partir do chat** | Fecha o ciclo conversa → conteúdo → revisão. Hoje a boa resposta morre no `localStorage`. Reaproveita o painel de aceite inteiro |
+| 6 | **Filtrar `#revisar` por tema** | Estudar Git hoje e revisar cartão de Python quebra o foco. Os chips de `.mat-filtros` já existem |
+| 7 | **Renderizar o markdown da IA** | Ela devolve `**negrito**` e `- listas`, e o app mostra cru. ⚠️ `esc()` **primeiro**, transformar depois, só de uma lista fechada de padrões — ao contrário é injeção |
+| 8 | **Exportar caderno** (Markdown) | Trilha + anotações + materiais viram documento: o resultado palpável de meses |
+| 9 | **Fallback de modelo no 429** | Se `GEMINI_MODELO` estourar a cota, tentar um `-lite` antes de desistir. O nome já vem de secret |
+| 10 | **Regerar `data.json`** | Está com a semente antiga. Faxina, não recurso |
+
+### Ideias maiores, ainda cruas
+
+| Ideia | Por que | O que custa |
+|---|---|---|
+| **Pomodoro com registro de tempo** | Vira a trilha de checklist em diário ("3h em Git esta semana"), e dá dado real para o "plano da semana" | Tabela nova + tela; decidir se o cronômetro sobrevive ao app fechado |
+| **Exportar cartões para o Anki** (CSV) | Se ele já usa Anki, a revisão dele mora lá; o app vira a fonte e não o concorrente | Baixo em CSV, alto em `.apkg` |
+| **Compartilhar um tema como link público** | O padrão de linha pública (`user_id is null`) já existe e é entendido; seria o mesmo truque com um token | Policy nova — e é a segunda vez que o projeto expõe dado de propósito, exige o teste de sempre |
+| **Mesclar trilha importada** em vez de substituir | Hoje `substituirTrilha()` é tudo-ou-nada. Mesclar permite pegar um tema de alguém sem perder o seu | Casar por texto, como as migrações já fazem — e por isso mesmo é traiçoeiro |
+| **Desfazer** (lixeira de 30 dias, `excluido_em`) | Excluir tema ou item é definitivo hoje | Coluna nova + filtro em toda leitura: é o custo escondido |
+| **Notificações push** | O `sw.js` existe e ele está no Android. É o que traz de volta quem parou | VAPID + cron no Supabase |
+| **Anexar imagem a uma anotação** | Print de erro é metade do que se anota estudando | Supabase Storage: primeira dependência fora de Postgres |
 
 O plano novo tem mais 10 ideias com o porquê de cada uma, e registra uma dependência que
 vale saber cedo: **as verificações de RLS exigem uma segunda conta Google**, a mesma que a

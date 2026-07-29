@@ -47,7 +47,11 @@ function cabecalhosCors(origem: string | null) {
   const permitida = origem && ORIGENS.includes(origem) ? origem : ORIGENS[0];
   return {
     "Access-Control-Allow-Origin": permitida,
-    "Access-Control-Allow-Headers": "authorization, content-type",
+    /* Tem que listar TODO cabeçalho que o navegador vai mandar. Um que
+       falte aqui — foi o "apikey" — faz o preflight recusar e o pedido
+       nem sai: o console mostra erro de CORS e o app parece morto, sem
+       nenhum registro do lado do servidor. */
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   };

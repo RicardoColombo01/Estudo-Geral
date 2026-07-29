@@ -611,10 +611,14 @@ let temIA = false, iaUsadas = 0, iaLimite = 0;
 
 async function chamarIA(corpo, comoTexto){
   if(!logado()) throw new Error("Entre com a sua conta para usar a IA.");
+  /* Sem o cabeçalho "apikey" de propósito: a Edge Function autentica pelo
+     Authorization, e cada cabeçalho a mais é um a mais que precisa estar
+     autorizado no preflight — foi exatamente o que quebrou na primeira
+     tentativa, e o sintoma é o app parecer morto sem erro nenhum no
+     servidor, porque o pedido nem chega a sair. */
   const r = await fetch(`${SB.url}/functions/v1/ia`, {
     method: "POST",
     headers: {
-      "apikey": SB.key,
       "Authorization": `Bearer ${sessao.access_token}`,
       "Content-Type": "application/json"
     },

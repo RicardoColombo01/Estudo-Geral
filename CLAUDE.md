@@ -206,11 +206,26 @@ Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirm
 | **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ✅ escrita; some da tela até a função responder ao `ping` |
 | **IA — Fase 3** (`#revisar`, revisão espaçada) | ✅ escrita |
 
-**Estado do deploy (2026-07-29):** CLI instalada em `C:\Users\ricar\supabase-cli` e no PATH;
-Ricardo logado; função `ia` **no ar** (`functions deploy ia --project-ref zezzpdhjjgqavtlxmgsp`)
-e conferida — devolve 401 **com a nossa mensagem**, o que prova que é o nosso código
-rodando e não o gateway (com `verify_jwt` ligado, a mensagem seria do Supabase).
-Falta: o secret `ANTHROPIC_API_KEY` e rodar `supabase-materiais.sql` + `supabase-ia.sql`.
+### Estado em 2026-07-29 — tudo pronto, parado só na chave paga
+
+Infraestrutura **inteira no ar e conferida**:
+
+| | |
+|---|---|
+| CLI do Supabase | instalada em `C:\Users\ricar\supabase-cli`, no PATH, Ricardo logado |
+| Função `ia` | publicada; 401 anônimo **com a nossa mensagem** (prova que é o nosso código, não o gateway) |
+| `supabase-materiais.sql` e `supabase-ia.sql` | rodados; `materiais`, `ia_uso` e `ia_cartoes` existem |
+| Escrita anônima | 401 em todas |
+| Botões ✨ e bolha 💬 | aparecem na tela |
+
+**O que falta é só uma coisa:** a conta da Anthropic não tem crédito, e o Ricardo disse
+que **não consegue pôr os US$5 mínimos**. A API responde `invalid x-api-key` /
+`credit balance is too low`, e o app mostra o erro dentro do painel — sem quebrar nada.
+
+> ⚠️ **A decisão dele: adaptar a função para o Gemini gratuito, e SÓ quando ele autorizar.**
+> Não começar essa migração sozinho, e **não sugerir de novo pôr crédito na Anthropic** —
+> ele já respondeu que não dá. O que a troca custa: perde a busca na web integrada, o
+> formato estruturado fica menos garantido, e as explicações caem um degrau.
 | Quadro de projeto (pessoal → grupo) | ⏳ desenhado no plano, nada escrito |
 
 O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,

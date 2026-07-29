@@ -356,6 +356,135 @@ propõe, você aceita. Pelo próprio plano, ação nova é "um prompt, um esquem
 
 ---
 
+## Item 8 — "Uma IA nossa", sem chave e sem limite diário
+
+**Pergunta dele, 2026-07-29:** *"teria como implementar uma IA que nós mesmos criarmos nesse
+site? Assim não teria tanto um uso diário e seria gratuito"*.
+
+A pergunta tem dois sentidos, e a resposta é diferente para cada um.
+
+### Treinar um modelo nosso: não
+
+Treinar do zero, ou mesmo afinar um modelo existente, exige GPU, conjunto de dados e semanas
+de trabalho — é um projeto de pesquisa, não um recurso deste app. Descartado, e é melhor
+dizer isso de uma vez do que voltar ao assunto a cada seis meses.
+
+### Rodar um modelo que é nosso, no aparelho de quem usa: **sim, e é de graça de verdade**
+
+`WebLLM` (MLC) e `transformers.js` (Hugging Face) rodam modelo direto no navegador via WebGPU.
+Em 2026, modelos como **Llama 3.2 1B** e **Qwen 2.5 0.5B** em quantização Q4 cabem em **1–2 GB**
+de memória de GPU e respondem de forma interativa.
+
+O que isso resolve, e resolve por completo:
+
+| | |
+|---|---|
+| custo | zero. Não há chave, não há cota, não há fatura |
+| limite diário | **não existe** — nem o nosso `LIMITE_DIA`, nem o do Google |
+| privacidade | nada sai do aparelho. Some o problema do tier grátis do Gemini usar o conteúdo dele para treinar |
+| offline | funciona sem rede depois do primeiro download — o único recurso de IA que caberia na fila de pendências |
+
+### O que custa, e por que o celular decide
+
+1. **O primeiro uso baixa de 0,5 a 2 GB de pesos.** Isto é o furo, não a inferência. No
+   celular dele, em dados móveis, é inviável; em Wi-Fi é uma espera longa. Depois fica em
+   cache. **Tem que ser opt-in explícito, com o tamanho dito na tela antes de começar** —
+   baixar 1,5 GB sem avisar é abuso.
+2. **Precisa de WebGPU e de RAM.** Chrome no Android é o alvo mais provável de funcionar; a
+   fonte é explícita em recomendar **um teste de capacidade e um caminho alternativo para
+   quem não passa** — que é exatamente o padrão de degradação deste projeto (`detectarIA()`,
+   `detectarColunas()`). Aparelho intermediário pode simplesmente matar a aba.
+3. **A qualidade cai, e cai de forma desigual por ação.** É o ponto mais importante de todos:
+
+| Ação | Modelo de 0,5–3B serve? |
+|---|---|
+| **gerar cartões** | **Sim.** A tarefa é reescrever as anotações DELE em pergunta/resposta — trabalho extrativo, onde modelo pequeno vai bem |
+| **explicar item** | Mais ou menos. Sai raso perto do Gemini Flash, e explicação rasa sobre o que ele ainda não sabe é pior que nenhuma |
+| **chat** | Mais ou menos, e piora com a conversa longa |
+| **buscar materiais** | **Não.** Sem web e com pouco conhecimento guardado, inventa endereço e título. Já é o ponto fraco hoje; ficaria inútil |
+
+4. **Atrito com a arquitetura.** As duas bibliotecas são módulos ES vindos de CDN, e a regra
+   do projeto é `<script src>` UMD, nunca `type="module"`, para o duplo clique no arquivo
+   continuar funcionando. Sai com `import()` dinâmico **só quando a pessoa liga o recurso** —
+   assim o app inteiro continua funcionando sem ele, e a regra não é quebrada, só contornada
+   no lugar certo.
+
+### O desenho que eu recomendo: uma escada, não uma troca
+
+Não substituir o Gemini. Escolher por ação, na ordem do mais barato para o mais caro:
+
+```
+1. código puro        → onde não precisa de modelo nenhum (ver abaixo)
+2. modelo local       → se a pessoa baixou e o aparelho aguenta: ilimitado e offline
+3. Gemini             → quando há rede e sobrou cota: a melhor qualidade
+4. mensagem honesta   → quando nada acima está disponível
+```
+
+`podeUsarIA()` já é o lugar dessa decisão, e o painel de aceite não muda: a IA continua
+propondo e ele continua aceitando, seja qual for o motor.
+
+### O degrau 1, que é o mais subestimado: cartões sem modelo nenhum
+
+O plano já diz que **o valor dos cartões está nas anotações dele**, não no assunto em geral.
+Partir uma anotação em pergunta/resposta por regra — primeira frase vira pergunta, resto vira
+resposta; linha com `?`; item de lista vira cartão — é código determinístico: **gratuito,
+instantâneo, offline, ilimitado e incapaz de alucinar**. Para essa ação específica, "uma IA
+nossa" pode ser literalmente uma função nossa. Vale tentar isto **antes** de baixar 1,5 GB.
+
+### Primeiro passo, se ele quiser seguir
+
+Não é implementar: é **medir no aparelho dele**. Uma página de teste solta, fora do app, que
+detecta WebGPU, baixa um modelo pequeno e cronometra a primeira resposta. Se o celular dele
+não aguentar, os itens de cima ficam decididos por si.
+
+### O lembrete incômodo
+
+Parte do "uso diário" que incomoda é um número **que nós escolhemos**: `LIMITE_DIA = 12`.
+O teto real do tier grátis do Google é outra coisa. Depois de alguns dias de uso, `ia_uso` já
+tem o extrato para saber qual é o teto de verdade — e talvez a resposta mais barata para o
+incômodo seja subir o nosso número, não trocar de motor.
+
+### Outros caminhos, para registro
+
+- **Trocar de provedor gratuito** (Groq, Cloudflare Workers AI, Hugging Face, OpenRouter):
+  levanta o teto, mas não elimina limite nem chave. Não é "IA nossa".
+- **Rodar Ollama na máquina dele e apontar o site para lá**: qualidade boa e ilimitada, mas o
+  app só funciona com o PC ligado, e falta checar se a página em HTTPS do GitHub Pages
+  consegue chamar `http://localhost` sem bloqueio de conteúdo misto. Serve para ele, não para
+  o app compartilhado.
+
+---
+
+## Item 9 — Não publicar e-mail no mural
+
+**Descoberta de 2026-07-29**, ao responder se ele tem acesso aos e-mails cadastrados.
+
+`meuNome()` tem esta cascata:
+
+```
+user_metadata.full_name  ||  user_metadata.name  ||  u.email  ||  "Você"
+```
+
+O resultado vai para `identidadeAutor()` → `mensagens.autor`, e a policy de leitura de
+`mensagens` é `using (true)`: **pública, inclusive para quem não está logado**.
+
+Ou seja: existe um caminho em que o **e-mail de alguém aparece como assinatura no mural**,
+visível para qualquer visitante e para qualquer um com a anon key.
+
+Na prática é estreito — o Google praticamente sempre devolve `name` e `full_name`, então o
+`u.email` quase nunca é alcançado. Mas "quase nunca" não é "nunca", e **quem cair nesse caso
+não tem como corrigir**: o mural é append-only, sem policy de update nem de delete. O recado
+com o e-mail fica lá.
+
+**A correção é uma linha:** no lugar de `u.email`, usar só a parte antes do `@`, ou `"Anônimo"`.
+Nome de e-mail cortado ainda identifica a pessoa para os colegas sem publicar o endereço.
+
+> Vale corrigir **antes** de mais gente entrar no app, porque a exposição é irreversível por
+> desenho. E não resolve retroativamente: se já houver recado assinado com e-mail, ele só sai
+> com `delete` direto no banco pelo painel, já que o app não tem esse caminho.
+
+---
+
 ## Mais ideias
 
 Ordenadas por (valor ÷ esforço), com o porquê. As cinco primeiras nasceram do estado atual;
@@ -378,7 +507,15 @@ as últimas vêm da Parte 3 do plano antigo e seguem valendo.
 
 ## Ordem sugerida
 
-**2 → 6a → 1 → 3 → mais-ideias nº 1 → 6b → 7 → 4 → 5**
+**2 → 9 → 6a → 1 → 3 → mais-ideias nº 1 → 6b → 7 → 4 → 5**, com o **8** fora da fila
+
+O **9** (não publicar e-mail) entrou quase no começo não por tamanho — é uma linha — mas
+porque a exposição é **irreversível por desenho**: o mural não tem update nem delete, então
+cada dia a mais é risco que não dá para desfazer depois.
+
+O **8** (IA nossa) fica **fora da fila** de propósito: antes de virar tarefa, precisa de uma
+medição no celular dele. Se o aparelho não aguentar WebGPU e 1,5 GB de download, o item morre
+sozinho — e o degrau de "cartões sem modelo nenhum" pode ser feito independente de tudo isso.
 
 O **6a** subiu para logo depois da correção de tela por um motivo que não é de recurso, é de
 perda de dado: enquanto ele não existe, cada exclusão de item concluído apaga história de

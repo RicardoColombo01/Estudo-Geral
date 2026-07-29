@@ -202,6 +202,19 @@ coisas offline.
   do navegador escondida, então o elemento se estende por baixo da barra e a parte de baixo
   some. `dvh` acompanha a barra. `.chat-painel` declara `vh` e `dvh` em sequência de
   propósito — a primeira é reserva para navegador que não conhece a segunda.
+- **`meuNome()` pode devolver o e-mail, e ele vira assinatura pública.** A cascata é
+  `full_name || name || u.email || "Você"`, e o resultado vai para `mensagens.autor`, cuja
+  policy de leitura é `using (true)` — pública até para quem não está logado. O Google
+  praticamente sempre manda `name`, então o `u.email` quase nunca é alcançado; mas quem cair
+  nesse caso **não tem como corrigir**, porque o mural é append-only (sem update, sem delete).
+  Correção no item 9 do `PLANO.md`: usar só a parte antes do `@`. Qualquer campo novo que
+  derive de `sessao.user` e vá para tabela de leitura pública passa pela mesma pergunta.
+- **O e-mail de quem se cadastrou não é acessível pelo app, e isso é por construção.** Os
+  e-mails vivem em `auth.users`, no schema `auth`, e o PostgREST só expõe o `public` — nem a
+  anon key, nem a sessão, nem `souAdmin` alcançam. Quem tem acesso é o **dono do projeto pelo
+  painel** (Authentication → Users) e qualquer coisa com a `service_role` (a Edge Function
+  recebe o e-mail em `getUser()`, mas não grava). Antes de responder "não temos os e-mails",
+  separar as duas coisas: o site não expõe, o painel sim.
 - **Excluir item concluído apaga história de estudo, em silêncio.** A cadeia é toda
   `on delete cascade`: `temas` → `itens` → `progresso` e `ia_cartoes`. Como `progresso` é a
   **única** fonte de `calcularSequencia()`, de `diasDeEstudo()` (mapa de 12 semanas) e da data
@@ -324,6 +337,7 @@ certo — o teste tem que usar cópia privada da outra conta.
 | **Desfazer** (lixeira de 30 dias, `excluido_em`) | Excluir tema ou item é definitivo hoje | Coluna nova + filtro em toda leitura: é o custo escondido |
 | **Notificações push** | O `sw.js` existe e ele está no Android. É o que traz de volta quem parou | VAPID + cron no Supabase |
 | **Anexar imagem a uma anotação** | Print de erro é metade do que se anota estudando | Supabase Storage: primeira dependência fora de Postgres |
+| **"IA nossa", sem chave e sem limite** *(pergunta dele, 2026-07-29)* | Modelo rodando no navegador via WebGPU (`WebLLM`/`transformers.js`): custo zero, **sem limite diário nenhum**, nada sai do aparelho, e funciona offline | Baixar 0,5–2 GB de pesos no 1º uso (opt-in, com o tamanho na tela), exigir WebGPU + RAM, e cair de qualidade. **Serve para cartões, não serve para buscar materiais.** Item 8 do `PLANO.md` — treinar modelo próprio está descartado ali, e o 1º passo é medir no celular dele, não implementar |
 
 O plano novo tem mais 10 ideias com o porquê de cada uma, e registra uma dependência que
 vale saber cedo: **as verificações de RLS exigem uma segunda conta Google**, a mesma que a

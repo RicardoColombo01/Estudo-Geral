@@ -205,6 +205,12 @@ Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirm
 | **IA — Fase 1** (SQL + Edge Function) | ✅ escrita; **bloqueada na chave da Anthropic, que ele ainda não tem** |
 | **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ✅ escrita; some da tela até a função responder ao `ping` |
 | **IA — Fase 3** (`#revisar`, revisão espaçada) | ✅ escrita |
+
+**Estado do deploy (2026-07-29):** CLI instalada em `C:\Users\ricar\supabase-cli` e no PATH;
+Ricardo logado; função `ia` **no ar** (`functions deploy ia --project-ref zezzpdhjjgqavtlxmgsp`)
+e conferida — devolve 401 **com a nossa mensagem**, o que prova que é o nosso código
+rodando e não o gateway (com `verify_jwt` ligado, a mensagem seria do Supabase).
+Falta: o secret `ANTHROPIC_API_KEY` e rodar `supabase-materiais.sql` + `supabase-ia.sql`.
 | Quadro de projeto (pessoal → grupo) | ⏳ desenhado no plano, nada escrito |
 
 O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,

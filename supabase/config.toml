@@ -1,0 +1,19 @@
+# Configuração do CLI do Supabase.
+# Sem este arquivo, "supabase functions deploy" não sabe de que projeto
+# está falando e para antes de tentar.
+
+project_id = "zezzpdhjjgqavtlxmgsp"
+
+[functions.ia]
+# A verificação de JWT do Supabase fica DESLIGADA aqui de propósito, e
+# isso não afrouxa nada — ela só confirma que veio um JWT válido do
+# projeto, e a anon key é um JWT válido E é pública. Ou seja, essa
+# checagem nunca provou nada neste caso.
+#
+# Quem barra de verdade é o código da função: ele chama getUser() e
+# devolve 401 se não houver uma conta real por trás do token.
+#
+# Em compensação, deixar ligada QUEBRA o CORS: o navegador manda um
+# pedido de permissão (OPTIONS) sem cabeçalho de autorização, leva 401
+# antes de chegar ao nosso código, e o app só vê "erro de rede".
+verify_jwt = false

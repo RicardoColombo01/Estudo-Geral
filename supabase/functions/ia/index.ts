@@ -49,12 +49,19 @@ const API = "https://generativelanguage.googleapis.com/v1beta/models";
    Fica atrás de secret para o dia em que houver faturamento na conta:
    "supabase secrets set GEMINI_BUSCA=1" e nada mais muda. */
 const BUSCA_WEB = (Deno.env.get("GEMINI_BUSCA") ?? "0") === "1";
-/* 12 e não 40: quando a chave era paga, o limite era dinheiro SEU por
-   conta, e 40 era generoso. Na camada gratuita a cota diária é do Google
-   sobre a CHAVE, compartilhada por todas as contas do app — há tier
-   gratuito em 20 chamadas/dia. Em 40, este freio nunca chegava a frear:
-   quem avisava era o erro do Google no meio de um pedido. */
-const LIMITE_DIA = 12;          // chamadas por conta por dia
+/* 60, e a história deste número explica para que ele serve.
+   Era 40 quando a chave era paga (o limite era dinheiro). Caiu para 12
+   quando achamos que o tier gratuito dava 20 chamadas por DIA. Em
+   2026-07-29 o Ricardo bateu no limite de verdade e ele é outro:
+   `limit: 20` POR MINUTO no gemini-3.6-flash — voltou a funcionar em um
+   minuto, sem trocar de modelo, o que fecha a prova da janela.
+   Ou seja: este contador nunca foi capaz de impedir rajada, porque conta
+   dia e o aperto é minuto. Quem impede rajada é a trava do `chamarIA()`
+   no cliente. O que sobra para cá é o papel de sempre — teto por conta,
+   para que um usuário não consuma a cota da chave inteira sozinho, e
+   extrato de uso. Para isso, 12 era restrição artificial: o teto diário
+   de um modelo flash é ordens de grandeza acima disso. */
+const LIMITE_DIA = 60;          // chamadas por conta por dia
 const ORIGENS = [
   "https://ricardocolombo01.github.io",
   "http://localhost:8765",

@@ -204,11 +204,13 @@ coisas offline.
   propósito — a primeira é reserva para navegador que não conhece a segunda.
 - **O limite que o Gemini aplica de verdade é POR MINUTO, e é da chave.** Medido em
   2026-07-29: `generate_content_free_tier_requests, limit: 20, model: gemini-3.6-flash`,
-  com `Please retry in 30.47s` — e voltou a funcionar em um minuto, o que **prova** a janela
-  curta (cota diária não se libera em 30s). Consequências: (1) o `LIMITE_DIA` **não protege
-  nada** contra rajada, porque conta dia e o teto é minuto; (2) ele conta **por conta**
-  enquanto o Google conta **por chave**, somando todos os usuários. Antes de mexer no número,
-  lembrar que ele resolve outro problema.
+  com `Please retry in 30.47s` — e voltou a funcionar em um minuto **apenas esperando, sem
+  trocar de modelo**, o que fecha a prova da janela curta (cota diária não se libera em 30s).
+  Consequências: (1) o `LIMITE_DIA` **não protege nada** contra rajada, porque conta dia e o
+  teto é minuto — quem impede rajada é a trava do `chamarIA()`; (2) ele conta **por conta**
+  enquanto o Google conta **por chave**, somando todos os usuários. O que sobra para o
+  `LIMITE_DIA` é teto por conta e extrato, e é por isso que ele foi de 12 para **60** em
+  2026-07-29: para o papel que ele realmente tem, 12 era restrição artificial.
 - **`registrar_uso_ia()` soma 1 em `chamadas` sempre.** Então ela é chamada **uma única vez
   por requisição** — no sucesso ou no fracasso, nunca nas duas. Antes ela só rodava no
   sucesso, e por isso o extrato e o `ping` mostravam número otimista: a cota queimada por

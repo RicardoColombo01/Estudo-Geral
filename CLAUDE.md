@@ -103,6 +103,8 @@ coisas offline.
 | `supabase/functions/ia/index.ts` | Edge Function. **O único lugar com a chave do Gemini** |
 | `manifest.json`, `sw.js`, `icon-*.png` | PWA. O `sw.js` nunca intercepta `supabase.co` |
 | `data.json` | Backup versionável (está com a semente antiga; regerar pelo Exportar) |
+| `PLANO.md` | Plano detalhado do que vem depois da IA. **É aqui que ideia nova é escrita** |
+| `planos/` | Planos antigos, como histórico do que foi decidido e por quê. O de 2026-07-28 guarda o desenho completo do quadro de projeto, ainda não construído |
 
 ## Armadilhas que já custaram tempo aqui
 
@@ -222,8 +224,7 @@ Checar sintaxe do JS sem abrir navegador: extrair o último bloco `<script>` e `
 
 ## Roadmap
 
-**7 melhorias aprovadas e detalhadas** em
-`C:\Users\ricar\.claude\plans\al-m-disso-quero-que-imperative-allen.md`:
+**7 melhorias aprovadas e detalhadas** em `planos/2026-07-28-melhorias-1-a-7.md`:
 
 | Fase | | Estado |
 |---|---|---|
@@ -238,7 +239,7 @@ Checar sintaxe do JS sem abrir navegador: extrair o último bloco `<script>` e `
 Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirmou:
 "nada travou, e o aplicativo instalou").
 
-**Depois disso** — plano aprovado em `C:\Users\ricar\.claude\plans\replicated-conjuring-lagoon.md`:
+**Depois disso** — plano aprovado em `planos/2026-07-28-ia-e-quadro-de-projeto.md`:
 
 | | Estado |
 |---|---|
@@ -254,8 +255,10 @@ pomodoro, exportar caderno, push, desfazer). Vale ler antes de propor qualquer u
 
 ### O que vem depois da IA — fila de trabalho
 
-Detalhamento em `C:\Users\ricar\.claude\plans\plano-depois-da-ia.md` (fora do repo). O
-essencial está aqui de propósito, para não depender daquele arquivo.
+Detalhamento em **`PLANO.md`**, na raiz do repositório — é lá que se escreve ideia nova. O
+resumo abaixo fica aqui de propósito: quem abre o CLAUDE.md tem o quadro sem precisar de
+outro arquivo. Se os dois divergirem, **o `PLANO.md` é o certo** e este resumo é que está
+velho.
 
 > ⚠️ Nada abaixo está autorizado a construir. O Ricardo escolhe um item por vez.
 

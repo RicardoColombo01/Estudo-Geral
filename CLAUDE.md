@@ -235,6 +235,21 @@ Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirm
 O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,
 pomodoro, exportar caderno, push, desfazer). Vale ler antes de propor qualquer uma.
 
+**O que vem depois da IA** — plano escrito em 2026-07-29, em
+`C:\Users\ricar\.claude\plans\plano-depois-da-ia.md`. Ordem sugerida e aprovada por ele
+como plano (nada autorizado a construir ainda):
+
+| | | Esforço |
+|---|---|---|
+| 1 | **Exercitar cartões e `#revisar`** — escritos em 2026-07-28 e **nunca executados**; inclui as 3 verificações que dependiam de a IA responder, entre elas o teste de RLS no contexto | zero código |
+| 2 | **Botão 🔍 no material sem link** — patch do vão que a perda da busca na web abriu | ~5 linhas |
+| 3 | **Busca global** (itens, anotações, materiais) — puro cliente | baixo |
+| 4 | **Quadro de projeto** (Fase 2a → 2b do plano antigo) | grande |
+
+O plano novo tem mais 10 ideias com o porquê de cada uma, e registra uma dependência que
+vale saber cedo: **as verificações de RLS exigem uma segunda conta Google**, a mesma que a
+Fase 2b do quadro vai precisar.
+
 ### Estado em 2026-07-29 — a IA está no ar, rodando no Gemini
 
 A conta da Anthropic exigia crédito mínimo pago e o Ricardo não podia pôr os US$5. A função

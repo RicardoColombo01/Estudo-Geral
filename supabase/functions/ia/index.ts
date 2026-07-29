@@ -49,7 +49,12 @@ const API = "https://generativelanguage.googleapis.com/v1beta/models";
    Fica atrás de secret para o dia em que houver faturamento na conta:
    "supabase secrets set GEMINI_BUSCA=1" e nada mais muda. */
 const BUSCA_WEB = (Deno.env.get("GEMINI_BUSCA") ?? "0") === "1";
-const LIMITE_DIA = 40;          // chamadas por conta por dia
+/* 12 e não 40: quando a chave era paga, o limite era dinheiro SEU por
+   conta, e 40 era generoso. Na camada gratuita a cota diária é do Google
+   sobre a CHAVE, compartilhada por todas as contas do app — há tier
+   gratuito em 20 chamadas/dia. Em 40, este freio nunca chegava a frear:
+   quem avisava era o erro do Google no meio de um pedido. */
+const LIMITE_DIA = 12;          // chamadas por conta por dia
 const ORIGENS = [
   "https://ricardocolombo01.github.io",
   "http://localhost:8765",

@@ -199,10 +199,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cabecalhosCors(origem) });
   if (req.method !== "POST") return json(405, { erro: "Use POST." }, origem);
 
-  if (!ANTHROPIC_API_KEY) {
-    return json(503, { erro: "A chave da Anthropic ainda não foi configurada nesta função." }, origem);
-  }
-
   /* 1. Quem é. Sem conta, sem IA — a chave é paga. */
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return json(401, { erro: "Entre com a sua conta para usar a IA." }, origem);
@@ -214,20 +210,40 @@ Deno.serve(async (req) => {
   const { data: { user } } = await supaUsuario.auth.getUser();
   if (!user) return json(401, { erro: "Sessão inválida ou expirada. Entre de novo." }, origem);
 
-  /* 2. Freio por conta. O contador é lido e escrito com a service_role. */
   const admin = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } });
   const hoje = new Date().toISOString().slice(0, 10);
   const { data: uso } = await admin
     .from("ia_uso").select("chamadas").eq("user_id", user.id).eq("dia", hoje).maybeSingle();
-  if ((uso?.chamadas ?? 0) >= LIMITE_DIA) {
-    return json(429, { erro: `Limite de ${LIMITE_DIA} usos da IA por dia atingido. Volta amanhã.` }, origem);
-  }
+  const usadas = uso?.chamadas ?? 0;
 
-  /* 3. O que foi pedido. */
+  /* 2. O que foi pedido. */
   let corpo: any;
   try { corpo = await req.json(); } catch { return json(400, { erro: "Corpo inválido." }, origem); }
   const acao = String(corpo?.acao ?? "");
+
+  /* "ping" não chama a IA e não gasta token nenhum: é como o app descobre
+     se a função existe, se a chave está configurada e quanto do limite do
+     dia ainda resta. Sem ele, o único jeito de saber seria tentar uma ação
+     de verdade — e pagar por ela para descobrir que não dava.
+     Responde 200 mesmo com o limite estourado: a resposta É o aviso. */
+  if (acao === "ping") {
+    return json(200, {
+      ok: Boolean(ANTHROPIC_API_KEY),
+      motivo: ANTHROPIC_API_KEY ? null : "sem_chave",
+      usadas,
+      limite: LIMITE_DIA,
+    }, origem);
+  }
+
   if (!PROMPTS[acao]) return json(400, { erro: "Ação desconhecida." }, origem);
+  if (!ANTHROPIC_API_KEY) {
+    return json(503, { erro: "A chave da Anthropic ainda não foi configurada nesta função." }, origem);
+  }
+
+  /* 3. Freio por conta, depois de saber que é uma ação que gasta. */
+  if (usadas >= LIMITE_DIA) {
+    return json(429, { erro: `Limite de ${LIMITE_DIA} usos da IA por dia atingido. Volta amanhã.` }, origem);
+  }
 
   const temaId = corpo?.temaId ? String(corpo.temaId) : null;
   const itemId = corpo?.itemId ? String(corpo.itemId) : null;

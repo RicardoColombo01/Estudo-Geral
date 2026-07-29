@@ -160,6 +160,19 @@ você concluiu, quando, o que anotou e o que já salvou.
 
 Enquanto não estiver configurada, **os botões ✨ nem aparecem**. Nada quebra.
 
+### Onde ela fica
+
+| Onde | O quê |
+|---|---|
+| Topo do tema | **✨ buscar materiais** e **✨ gerar cartões de revisão** |
+| Em cada item | **✨** explica o item no seu nível, e a explicação pode virar anotação |
+| Canto da tela, dentro do tema | **💬** conversa sobre o tema; a conversa fica no seu navegador |
+| Card **🔁 Revisar** na home | Os cartões que vencem hoje |
+
+As sugestões sempre chegam como **proposta com caixinha**: você marca as boas e dispensa o
+resto — o mesmo fluxo das novidades da trilha oficial. Quem decide quando um cartão volta é
+o app, não a IA: acertou, o intervalo dobra; errou, ele volta amanhã.
+
 ### Como ligar
 
 > ⚠️ **Assinatura do claude.ai não serve.** A assinatura é do site/app; a API é cobrada

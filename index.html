@@ -271,6 +271,44 @@ button{font-family:inherit}
 .mini.com-nota{color:var(--gold)}
 .check-vazio{width:24px; height:24px}   /* segura a coluna do grid no modo modelo */
 
+/* ============ IA ============ */
+.ia-acoes{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:14px 0 4px}
+.ia-resta{font-family:var(--font-mono); font-size:10.5px; color:var(--muted)}
+.mini.ia{color:var(--gold); border-color:color-mix(in srgb,var(--gold) 30%, var(--line))}
+.mini.ia:hover{color:var(--gold); background:color-mix(in srgb,var(--gold) 12%, transparent); border-color:var(--gold)}
+.ia-caixa{margin-top:10px; padding:12px 14px; border-radius:10px;
+  background:var(--panel-2); border-left:3px solid color-mix(in srgb,var(--gold) 70%, transparent)}
+.ia-texto{margin:0 0 10px; font-size:13.5px; line-height:1.6; color:var(--ink-dim); white-space:pre-wrap; overflow-wrap:break-word}
+.ia-texto.aviso{color:var(--gold); font-size:12.5px}
+.ia-texto.pensando{color:var(--muted); font-style:italic}
+.ia-caixa .row{display:flex; gap:8px; justify-content:flex-end}
+.ia-painel{margin:16px 0 8px; padding:16px; border-radius:16px;
+  background:var(--panel); border:1px solid color-mix(in srgb,var(--gold) 35%, var(--line))}
+
+/* ---- Chat ---- */
+.chat-bolha{position:fixed; right:18px; bottom:18px; z-index:20; width:52px; height:52px; border-radius:50%;
+  font-size:22px; cursor:pointer; border:1px solid var(--line); background:var(--panel); box-shadow:var(--shadow)}
+.chat-bolha:hover{border-color:var(--gold)}
+.chat-painel{position:fixed; right:14px; bottom:14px; z-index:20; width:min(420px, calc(100vw - 28px));
+  max-height:min(70vh, 560px); display:flex; flex-direction:column;
+  background:var(--panel); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); overflow:hidden}
+.chat-topo{display:flex; align-items:center; gap:8px; padding:10px 12px; font-size:12.5px;
+  color:var(--ink-dim); border-bottom:1px solid var(--line-soft)}
+.chat-corpo{flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:12px}
+.chat-msg{display:flex; flex-direction:column; gap:3px}
+.chat-msg .chat-quem{font-family:var(--font-mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted)}
+.chat-msg p{margin:0; font-size:13.5px; line-height:1.55; white-space:pre-wrap; overflow-wrap:break-word}
+.chat-msg.user p{color:var(--ink)}
+.chat-msg.assistant p{color:var(--ink-dim)}
+.chat-msg p.pensando{color:var(--muted); font-style:italic}
+.chat-form{padding:10px 12px; border-top:1px solid var(--line-soft)}
+
+/* ---- Revisão ---- */
+.cartao{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:22px}
+.cartao-pergunta{margin:0; font-size:17px; font-weight:600; color:var(--ink); line-height:1.45}
+.cartao-resposta{margin:16px 0 0; padding-top:16px; border-top:1px solid var(--line-soft);
+  font-size:14px; line-height:1.6; color:var(--ink-dim); white-space:pre-wrap}
+
 /* ============ Materiais ============ */
 .mat-sec{margin-top:28px}
 .item.mat{align-items:center}
@@ -479,6 +517,15 @@ const MIGR_CONTA_KEY = "estudos-ia-migrado-conta-v1";
 const THEME_KEY = "estudos-ia-theme";
 let state, editingId = null, editingAba = null, editingNota = null, editingMat = null;
 let filtroMat = "todos";   // filtro por tipo na tela #materiais
+
+/* Estado da IA. Tudo efêmero de propósito: proposta que não foi aceita
+   não vira linha no banco, e explicação some quando você fecha. */
+let iaDetectada = false;
+let iaPainel = null;       // {tipo, abaId, itens:[], erro, carregando}
+let iaExplicando = null;   // id do item cuja explicação está aberta
+let iaTexto = "";          // texto que está chegando (streaming)
+let chatAberto = false, chatMsgs = [], chatPensando = false;
+let cartoes = [], cartaoAberto = false;   // tela #revisar
 let carregando = true;   // primeiro fetch ainda não voltou
 let offline = false;     // o banco não respondeu (ou não foi configurado)
 let mensagens = [], muralTimer = null, muralCanal = null;
@@ -550,6 +597,65 @@ async function sbFetch(path, opts={}){
      o corpo é mais confiável do que tentar adivinhar pelo código de status. */
   const corpo = await r.text();
   return corpo ? JSON.parse(corpo) : null;
+}
+
+/* ---------------------------- IA ---------------------------- */
+/* A chave da Anthropic NÃO está aqui e nunca vai estar: ela vive como
+   secret da Edge Function. Daqui sai só o token da sua sessão — o mesmo
+   crachá que o resto do app usa.
+
+   Estas chamadas vão para /functions/v1, não para /rest/v1: por isso não
+   passam pelo sbFetch() e NÃO entram na fila de pendências. Pedido de IA
+   guardado para amanhã não faz sentido — a pergunta era de hoje. */
+let temIA = false, iaUsadas = 0, iaLimite = 0;
+
+async function chamarIA(corpo, comoTexto){
+  if(!logado()) throw new Error("Entre com a sua conta para usar a IA.");
+  const r = await fetch(`${SB.url}/functions/v1/ia`, {
+    method: "POST",
+    headers: {
+      "apikey": SB.key,
+      "Authorization": `Bearer ${sessao.access_token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(corpo)
+  });
+  if(!r.ok){
+    let msg = `${r.status}`;
+    try{ const j = await r.json(); if(j && j.erro) msg = j.erro; }catch(e){}
+    const err = new Error(msg); err.status = r.status; throw err;
+  }
+  return comoTexto ? r : r.json();
+}
+
+/* Descobre se a IA está disponível sem gastar um token sequer. Mesmo
+   padrão de temNota/temMateriais: sem ela, os botões ✨ nem aparecem. */
+async function detectarIA(){
+  temIA = false;
+  if(!logado() || offline) return;
+  try{
+    const r = await chamarIA({ acao: "ping" });
+    temIA = Boolean(r && r.ok);
+    iaUsadas = r.usadas || 0;
+    iaLimite = r.limite || 0;
+  }catch(e){ temIA = false; }   // 404 (sem deploy), 503 (sem chave), sem rede
+}
+
+/* O texto chega escrevendo, como uma conversa. Texto puro em vez de SSE:
+   o cliente só concatena os pedaços, sem parser de eventos. */
+async function iaStream(corpo, aoReceber){
+  const r = await chamarIA(corpo, true);
+  const leitor = r.body.getReader();
+  const dec = new TextDecoder();
+  let tudo = "";
+  while(true){
+    const { done, value } = await leitor.read();
+    if(done) break;
+    tudo += dec.decode(value, { stream: true });
+    aoReceber(tudo);
+  }
+  iaUsadas++;
+  return tudo;
 }
 
 /* -------------------- Fila de alterações -------------------- */
@@ -1080,6 +1186,7 @@ async function load(){
           await carregarProgresso();
           await migrarProgressoParaConta(st);
           await carregarNovidades(st);
+          if(!iaDetectada){ iaDetectada = true; await detectarIA(); }
         } else if(logado()){
           /* Modo modelo: o progresso é de itens da SUA cópia, e aqui na tela
              estão os itens do modelo — ids diferentes. Não carregar nada é o
@@ -1334,6 +1441,7 @@ function go(id){ if(route()===id){ render(); } else { location.hash = id; } }
 
 window.addEventListener("hashchange", async ()=>{
   editingId = null; editingNota = null; editingMat = null;
+  iaExplicando = null; iaTexto = ""; iaPainel = null; chatAberto = false;
   const r = route();
   /* Material novo que nunca chegou a ser salvo não sobrevive à navegação —
      mesma regra do tema novo logo abaixo. */
@@ -1345,6 +1453,7 @@ window.addEventListener("hashchange", async ()=>{
   window.scrollTo({top:0});
   if(editingAba===r) focusTema();   // o formulário só existe depois deste render
   if(r==="mural"){ await carregarMensagens(); render(); }
+  if(r==="revisar"){ cartaoAberto = false; await carregarCartoes(); render(); }
   ajustarMural();
 });
 
@@ -1374,6 +1483,15 @@ function viewHome(){
     <button class="card feature" data-go="materiais">
       <div class="c-top"><span class="c-emoji">📎</span>${nm?`<span class="badge">${nm}</span>`:""}</div>
       <div><p class="c-name">Materiais</p><p class="c-sub">${nm?"Cursos, vídeos e artigos que você guardou":"Guarde links de estudo por tema"}</p></div>
+    </button>`;
+  }
+
+  if(podeUsarIA()){
+    const nc = cartoes.length;
+    cards += `
+    <button class="card feature" data-go="revisar">
+      <div class="c-top"><span class="c-emoji">🔁</span>${nc?`<span class="badge">${nc}</span>`:""}</div>
+      <div><p class="c-name">Revisar</p><p class="c-sub">${nc?`${nc} cartão${nc===1?"":"ões"} para hoje`:"Cartões de revisão das suas anotações"}</p></div>
     </button>`;
   }
 
@@ -1558,12 +1676,188 @@ function blocoNota(it){
 }
 
 function acoesItem(it){
-  if(!podeEditar()) return `<span></span>`;
+  /* O ✨ aparece mesmo para quem não pode editar: explicar não escreve
+     nada. Só salvar como anotação exige a sua cópia. */
+  const ia = (podeUsarIA() && !it.novo)
+    ? `<button class="mini ia" data-action="ia-explicar" title="Explicar este item">✨</button>` : "";
+  if(!podeEditar()) return ia ? `<div class="item-actions">${ia}</div>` : `<span></span>`;
   /* O ponto no botão diz que existe nota sem obrigar a abrir para descobrir. */
   const nota = (temNota && !modoModelo)
     ? `<button class="mini ${it.nota?"com-nota":""}" data-action="nota" title="Anotações">📝${it.nota?" •":""}</button>`
     : "";
-  return `<div class="item-actions">${nota}<button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>`;
+  return `<div class="item-actions">${ia}${nota}<button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>`;
+}
+
+/* ========================= Telas da IA ========================= */
+/* Regra que vale para tudo aqui: a IA PROPÕE, você ACEITA. Nada que ela
+   devolve vira linha no banco sem passar por uma caixinha marcada — o
+   mesmo fluxo da tela de novidades, que já é familiar. */
+
+function podeUsarIA(){ return temIA && logado() && !offline && !modoModelo; }
+
+/* Botões no topo do tema. Só existem quando a IA está configurada. */
+function blocoIaTema(aba){
+  if(!podeUsarIA()) return "";
+  const resta = iaLimite ? ` <span class="ia-resta">${Math.max(0, iaLimite - iaUsadas)} usos hoje</span>` : "";
+  return `<div class="ia-acoes">
+    ${temMateriais?`<button class="mini ia" data-action="ia-materiais">✨ buscar materiais</button>`:""}
+    <button class="mini ia" data-action="ia-cartoes">✨ gerar cartões de revisão</button>
+    ${resta}
+  </div>`;
+}
+
+/* Explicação de um item: chega escrevendo e pode virar anotação. */
+function blocoExplicacao(it){
+  if(iaExplicando !== it.id) return "";
+  const corpo = iaTexto
+    ? `<p class="ia-texto">${esc(iaTexto)}</p>`
+    : `<p class="ia-texto pensando">✨ pensando…</p>`;
+  return `<div class="ia-caixa">
+    ${corpo}
+    <div class="row">
+      <button type="button" class="btn" data-action="ia-fechar-explicacao">Fechar</button>
+      ${iaTexto && podeEditar()?`<button type="button" class="btn primary" data-action="ia-virar-nota">📝 Salvar como anotação</button>`:""}
+    </div>
+  </div>`;
+}
+
+/* Painel de propostas — materiais ou cartões. Uma lista com caixinhas,
+   igual à tela de novidades. */
+function painelIA(aba){
+  if(!iaPainel || iaPainel.abaId !== aba.id) return "";
+
+  if(iaPainel.carregando){
+    return `<div class="ia-painel"><div class="section-label">✨ ${iaPainel.tipo === "materiais" ? "procurando materiais" : "montando cartões"}</div>
+      <p class="ia-texto pensando">${iaPainel.tipo === "materiais"
+        ? "Pesquisando na web e conferindo o que você já salvou…"
+        : "Lendo suas anotações e os itens concluídos…"}</p></div>`;
+  }
+  if(iaPainel.erro){
+    return `<div class="ia-painel"><div class="section-label">✨ não deu</div>
+      <p class="ia-texto">${esc(iaPainel.erro)}</p>
+      <div class="row"><button class="btn" data-action="ia-fechar-painel">Fechar</button></div></div>`;
+  }
+
+  const itens = iaPainel.itens || [];
+  if(!itens.length){
+    return `<div class="ia-painel"><div class="section-label">✨ nada novo</div>
+      <p class="ia-texto">${iaPainel.tipo === "materiais"
+        ? "A IA não achou nada que já não estivesse na sua lista."
+        : "Não encontrei conteúdo suficiente. Anote alguma coisa nos itens e tente de novo — os cartões saem das suas anotações."}</p>
+      <div class="row"><button class="btn" data-action="ia-fechar-painel">Fechar</button></div></div>`;
+  }
+
+  const linhas = itens.map((x,k)=>{
+    if(iaPainel.tipo === "materiais"){
+      const t = TIPOS_MAT[x.tipo] || TIPOS_MAT.outro;
+      const href = urlSegura(x.url);
+      return `<li class="item nov-item">
+        <input type="checkbox" class="nov-check" data-ia="${k}" id="ia-${k}" checked>
+        <div class="item-body">
+          <label class="item-text" for="ia-${k}">${t.emoji} ${esc(x.titulo)}</label>
+          <p class="item-detail">${href?esc(dominio(href)):`<span class="perigo">endereço inválido — não será salvo como link</span>`}${x.nota?` · ${esc(x.nota)}`:""}</p>
+        </div></li>`;
+    }
+    return `<li class="item nov-item">
+      <input type="checkbox" class="nov-check" data-ia="${k}" id="ia-${k}" checked>
+      <div class="item-body">
+        <label class="item-text" for="ia-${k}">${esc(x.pergunta)}</label>
+        <p class="item-detail">${esc(x.resposta)}</p>
+      </div></li>`;
+  }).join("");
+
+  return `<div class="ia-painel">
+    <div class="section-label">✨ ${iaPainel.tipo === "materiais" ? "materiais sugeridos" : "cartões sugeridos"} — ${itens.length}</div>
+    <p class="ia-texto aviso">Confira antes de aceitar. A IA erra, e o que você aceitar vira conteúdo seu.</p>
+    <ul class="list">${linhas}</ul>
+    <div class="bar" style="margin-top:14px; flex-wrap:wrap">
+      <button class="btn primary" data-action="ia-aceitar">＋ Adicionar selecionados</button>
+      <button class="btn" data-action="ia-fechar-painel">Dispensar tudo</button>
+    </div>
+  </div>`;
+}
+
+/* Chat: botão flutuante dentro do tema. A conversa mora no localStorage —
+   é pessoal, não custa tabela nem policy, e some quando você quiser. */
+function chaveChat(abaId){ return `estudos-ia-chat:${abaId}`; }
+function lerChat(abaId){
+  try{ const a = JSON.parse(localStorage.getItem(chaveChat(abaId))||"[]"); return Array.isArray(a)?a:[]; }
+  catch(e){ return []; }
+}
+function salvarChat(abaId){
+  try{ localStorage.setItem(chaveChat(abaId), JSON.stringify(chatMsgs.slice(-30))); }catch(e){}
+}
+
+function blocoChat(aba){
+  if(!podeUsarIA()) return "";
+  if(!chatAberto) return `<button class="chat-bolha" data-action="chat-abrir" title="Conversar sobre este tema">💬</button>`;
+
+  const linhas = chatMsgs.map(m=>`<div class="chat-msg ${m.role}">
+    <span class="chat-quem">${m.role === "user" ? "você" : "✨"}</span>
+    <p>${esc(m.content)}</p></div>`).join("");
+
+  return `<div class="chat-painel">
+    <div class="chat-topo">
+      <span>💬 falando sobre <b>${esc(aba.nome)}</b></span>
+      <span class="spacer"></span>
+      ${chatMsgs.length?`<button class="mini" data-action="chat-limpar">limpar</button>`:""}
+      <button class="mini" data-action="chat-fechar">✕</button>
+    </div>
+    <div class="chat-corpo">
+      ${linhas || `<p class="ia-texto pensando">Pergunte o que quiser sobre este tema. A IA já sabe o que você concluiu e o que anotou.</p>`}
+      ${chatPensando?`<div class="chat-msg assistant"><span class="chat-quem">✨</span><p class="pensando">pensando…</p></div>`:""}
+    </div>
+    <form class="edit-form chat-form" data-form-chat="${aba.id}">
+      <input name="texto" placeholder="Escreva sua pergunta…" maxlength="2000" autocomplete="off" required${chatPensando?" disabled":""}>
+    </form>
+  </div>`;
+}
+
+/* --------------------- Tela de revisão --------------------- */
+async function carregarCartoes(){
+  cartoes = [];
+  if(!logado() || offline) return;
+  const hoje = new Date().toISOString().slice(0,10);
+  try{
+    cartoes = await sbFetch(`ia_cartoes?select=*&proxima_revisao=lte.${hoje}&order=proxima_revisao&limit=50`) || [];
+  }catch(e){ cartoes = []; }   // tabela ainda não existe: tela avisa
+}
+
+function viewRevisar(){
+  if(!logado()){
+    return `<div class="wrap">${topBar()}
+      <div class="sec-head"><div class="eyebrow">revisão</div><h2>🔁 Revisar</h2>
+        <p>Os cartões ficam na sua conta.</p></div>
+      ${convite("Entre com o Google para revisar seus cartões.")}</div>`;
+  }
+
+  const c = cartoes[0];
+  const corpo = !c
+    ? `<div class="empty-state"><div class="big">🎉</div>
+        <p class="item-text" style="color:var(--ink)">Nada para revisar hoje</p>
+        <p>Gere cartões dentro de um tema com <b>✨ gerar cartões de revisão</b>. Eles voltam sozinhos no dia certo.</p></div>`
+    : `<div class="cartao">
+        <p class="cartao-pergunta">${esc(c.pergunta)}</p>
+        ${cartaoAberto
+          ? `<p class="cartao-resposta">${esc(c.resposta)}</p>
+             <div class="bar" style="margin-top:16px">
+               <button class="btn" data-action="rev-errei">Ainda não sei</button>
+               <span class="spacer"></span>
+               <button class="btn primary" data-action="rev-acertei">Sabia ✓</button>
+             </div>`
+          : `<div class="bar" style="margin-top:16px"><span class="spacer"></span>
+               <button class="btn primary" data-action="rev-mostrar">Mostrar resposta</button></div>`}
+      </div>`;
+
+  return `<div class="wrap">
+    ${topBar()}
+    <div class="sec-head">
+      <div class="eyebrow">revisão — ${cartoes.length} para hoje</div>
+      <h2>🔁 Revisar</h2>
+      <p>Quem decide quando cada cartão volta é o app, não a IA: acertou, o intervalo dobra; errou, ele volta amanhã.</p>
+    </div>
+    ${corpo}
+  </div>`;
 }
 
 /* ------------------ Materiais: linhas e formulário ------------------ */
@@ -1700,6 +1994,7 @@ function viewStage(idx){
         ${it.detalhe?`<p class="item-detail">${esc(it.detalhe)}</p>`:""}
         ${it.feito?selo(it.id):""}
         ${blocoNota(it)}
+        ${blocoExplicacao(it)}
       </div>
       ${acoesItem(it)}
     </li>`;
@@ -1738,10 +2033,13 @@ function viewStage(idx){
   return `<div class="wrap">
     ${topBar()}
     ${cabecalho}
+    ${blocoIaTema(a)}
+    ${painelIA(a)}
     ${podeEditar()?"":convite("Este é o conteúdo da trilha oficial. Entre com o Google para editar os itens deste tema na <b>sua</b> cópia, sem mexer na de mais ninguém.")}
     <ul class="list">${items}</ul>
     ${podeEditar()?`<button class="add-item" data-action="add">+ adicionar item</button>`:""}
     ${blocoMateriais(a)}
+    ${blocoChat(a)}
   </div>`;
 }
 
@@ -1953,6 +2251,7 @@ function render(){
   else if(r==="mural") html = viewMural();
   else if(r==="novidades") html = viewNovidades();
   else if(r==="materiais") html = viewMateriais();
+  else if(r==="revisar") html = viewRevisar();
   else { const idx = state.abas.findIndex(a=>a.id===r); if(idx<0){ location.hash=""; return; } html = viewStage(idx); }
   $("#app").innerHTML = faixaRede() + faixaModelo() + faixaNovidades() + html;
 }
@@ -2107,6 +2406,140 @@ document.addEventListener("click", async e=>{
     case "nota": editingNota = (editingNota===id ? null : id); editingId=null; render(); focusNota(); break;
     case "nota-cancel": editingNota = null; render(); break;
 
+    /* ---------------------------- IA ---------------------------- */
+    case "ia-explicar":{
+      const f = findItem(id); if(!f) break;
+      iaExplicando = id; iaTexto = ""; editingId = editingNota = null; render();
+      try{
+        await iaStream({ acao:"explicar", temaId: f.aba.dbId, itemId: id }, texto=>{
+          if(iaExplicando !== id) return;   // fechou no meio: para de desenhar
+          iaTexto = texto; render();
+        });
+      }catch(e){
+        iaTexto = "Não consegui explicar agora: " + e.message;
+      }
+      render(); break;
+    }
+
+    case "ia-fechar-explicacao": iaExplicando = null; iaTexto = ""; render(); break;
+
+    case "ia-virar-nota":{
+      const f = findItem(iaExplicando); if(!f || !iaTexto) break;
+      /* A explicação vira anotação SUA — depois disso ela é conteúdo seu,
+         editável, e é dela que os cartões de revisão vão sair. */
+      const nota = iaTexto.slice(0,2000);
+      f.it.nota = nota; const alvoId = f.it.id;
+      iaExplicando = null; iaTexto = ""; render();
+      await salvarNoServidor(()=> sbFetch(`itens?id=eq.${alvoId}`, {
+        method:"PATCH", body: JSON.stringify({ nota })
+      }));
+      break;
+    }
+
+    case "ia-materiais":
+    case "ia-cartoes":{
+      const aba = state.abas.find(a=>a.id===route()); if(!aba) break;
+      const tipo = action === "ia-materiais" ? "materiais" : "cartoes";
+      iaPainel = { tipo, abaId: aba.id, carregando: true, itens: [], erro: "" };
+      render();
+      try{
+        const r = await chamarIA({
+          acao: tipo === "materiais" ? "buscar_materiais" : "cartoes",
+          temaId: aba.dbId
+        });
+        iaUsadas++;
+        const lista = tipo === "materiais" ? (r.sugestoes || []) : (r.cartoes || []);
+        /* Não oferecer o que já está salvo: a IA foi instruída a evitar,
+           mas conferir aqui é barato e não depende de ela obedecer. */
+        const jaTenho = new Set((aba.materiais||[]).map(m=>(m.url||"").trim().toLowerCase()));
+        iaPainel = {
+          tipo, abaId: aba.id, carregando: false, erro: "",
+          itens: tipo === "materiais"
+            ? lista.filter(x=>x && x.titulo && !jaTenho.has(String(x.url||"").trim().toLowerCase()))
+            : lista.filter(x=>x && x.pergunta && x.resposta)
+        };
+      }catch(e){
+        iaPainel = { tipo, abaId: aba.id, carregando:false, itens:[], erro: e.message };
+      }
+      render(); break;
+    }
+
+    case "ia-fechar-painel": iaPainel = null; render(); break;
+
+    case "ia-aceitar":{
+      if(!iaPainel) break;
+      const marcados = [...document.querySelectorAll("[data-ia]")].filter(c=>c.checked)
+        .map(c=>iaPainel.itens[Number(c.dataset.ia)]).filter(Boolean);
+      if(!marcados.length){ alert("Selecione ao menos um."); break; }
+      const aba = state.abas.find(a=>a.id===iaPainel.abaId);
+      const tipo = iaPainel.tipo;
+      iaPainel = null; carregando = true; render();
+
+      await salvarNoServidor(async ()=>{
+        if(tipo === "materiais"){
+          let o = (aba.materiais||[]).reduce((m,x)=>Math.max(m, x.ordem||0), 0);
+          await sbFetch("materiais", { method:"POST", body: JSON.stringify(marcados.map(x=>({
+            id: novoId(), tema_id: aba.dbId,
+            titulo: String(x.titulo).slice(0,120),
+            url: String(x.url||"").slice(0,500),
+            tipo: TIPOS_MAT[x.tipo] ? x.tipo : "outro",
+            nota: String(x.nota||"").slice(0,500),
+            ordem: ++o
+          })))});
+        } else {
+          const idsDoTema = new Set(aba.itens.map(i=>i.id));
+          await sbFetch("ia_cartoes", { method:"POST", body: JSON.stringify(marcados.map(x=>({
+            id: novoId(), tema_id: aba.dbId,
+            /* Só aceita item_id que exista mesmo neste tema: a IA pode
+               devolver um id inventado, e o banco recusaria a linha toda. */
+            item_id: idsDoTema.has(x.item_id) ? x.item_id : null,
+            pergunta: String(x.pergunta).slice(0,500),
+            resposta: String(x.resposta).slice(0,2000)
+          })))});
+        }
+      });
+      state = await load();
+      await carregarCartoes();
+      carregando = false; render(); break;
+    }
+
+    /* --------------------------- Chat --------------------------- */
+    case "chat-abrir":{
+      const aba = state.abas.find(a=>a.id===route()); if(!aba) break;
+      chatMsgs = lerChat(aba.id); chatAberto = true; render();
+      requestAnimationFrame(()=>{ const i=document.querySelector("[data-form-chat] input"); if(i) i.focus(); });
+      break;
+    }
+    case "chat-fechar": chatAberto = false; render(); break;
+    case "chat-limpar":{
+      const aba = state.abas.find(a=>a.id===route()); if(!aba) break;
+      chatMsgs = []; salvarChat(aba.id); render(); break;
+    }
+
+    /* -------------------------- Revisão -------------------------- */
+    case "rev-mostrar": cartaoAberto = true; render(); break;
+
+    case "rev-acertei":
+    case "rev-errei":{
+      const c = cartoes[0]; if(!c) break;
+      const acertou = action === "rev-acertei";
+      /* A conta é do app, não da IA: acertou dobra o intervalo, errou
+         volta ao começo. Exata, de graça e sem alucinação. */
+      const intervalo = acertou ? Math.max(1, (c.intervalo_dias||1) * 2) : 1;
+      const prox = new Date(); prox.setDate(prox.getDate() + intervalo);
+      const campos = {
+        intervalo_dias: intervalo,
+        proxima_revisao: prox.toISOString().slice(0,10),
+        acertos: (c.acertos||0) + (acertou?1:0),
+        erros:   (c.erros||0)   + (acertou?0:1)
+      };
+      cartoes.shift(); cartaoAberto = false; render();
+      await salvarNoServidor(()=> sbFetch(`ia_cartoes?id=eq.${c.id}`, {
+        method:"PATCH", body: JSON.stringify(campos)
+      }));
+      break;
+    }
+
     /* ------------------------- Materiais ------------------------- */
     case "mat-filtro": filtroMat = act.dataset.tipo || "todos"; render(); break;
 
@@ -2187,6 +2620,41 @@ document.addEventListener("click", async e=>{
 });
 
 document.addEventListener("submit", async e=>{
+  /* -------------------------- Chat -------------------------- */
+  const fc = e.target.closest("[data-form-chat]");
+  if(fc){
+    e.preventDefault();
+    const aba = state.abas.find(a=>a.id===fc.dataset.formChat);
+    const texto = fc.texto.value.trim().slice(0,2000);
+    if(!aba || !texto || chatPensando) return;
+
+    chatMsgs.push({ role:"user", content: texto });
+    salvarChat(aba.id);
+    chatPensando = true; render();
+
+    try{
+      /* Só as últimas mensagens sobem: o contexto pesado (itens, notas,
+         progresso) a função monta do banco, e repetir tudo a cada turno
+         só encareceria a conversa. */
+      const resposta = await iaStream({
+        acao: "chat", temaId: aba.dbId,
+        mensagens: chatMsgs.slice(-12)
+      }, parcial=>{
+        chatPensando = false;
+        const ult = chatMsgs[chatMsgs.length-1];
+        if(ult && ult.role === "assistant") ult.content = parcial;
+        else chatMsgs.push({ role:"assistant", content: parcial });
+        render();
+      });
+      if(!resposta) chatMsgs.push({ role:"assistant", content:"(sem resposta)" });
+    }catch(err){
+      chatMsgs.push({ role:"assistant", content:"Não consegui responder: " + err.message });
+    }
+    chatPensando = false; salvarChat(aba.id); render();
+    requestAnimationFrame(()=>{ const i=document.querySelector("[data-form-chat] input"); if(i) i.focus(); });
+    return;
+  }
+
   /* ------------------------ Material ------------------------ */
   const fmat = e.target.closest("[data-form-mat]");
   if(fmat){

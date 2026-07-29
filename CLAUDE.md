@@ -49,6 +49,7 @@ Três decisões fazem o cliente quase não precisar saber disso:
 |---|---|
 | Rede (porta única) | `sbFetch()`, `cabecalhosSb()`, `salvarNoServidor()`, `novoId()` |
 | Offline | `fila`/`enfileirar()`/`enviarFila()`, `guardarRetrato()`/`lerRetrato()`, `tentarReconectar()`, `faixaRede()` |
+| IA | `chamarIA()`, `iaStream()`, `detectarIA()`, `podeUsarIA()`, `painelIA()`, `blocoChat()`, `viewRevisar()` |
 | Auth | `sbClient` (SDK), `entrar()`, `sair()`, `logado()`, `podeEditar()`, `meuNome()` |
 | Carga | `load()`, `carregarTrilha()`, `carregarProgresso()`, `recarregar()` |
 | Progresso | `progresso` (Set), `marcarItem()`, `aplicarProgresso()`, `sincProgresso()` |
@@ -116,6 +117,15 @@ coisas offline.
   devolveria `#access_token=` e atropelaria o `route()`.
 - **SDK via `<script src>` UMD, nunca `type="module"`** — módulo ES quebra o `file://`, e o
   duplo clique no arquivo precisa continuar funcionando.
+- **A ação `ping` existe para não pagar só para descobrir se dá.** Ela não chama a IA e não
+  gasta token: devolve se a chave está configurada e quanto do limite do dia resta. Sem ela,
+  o único jeito de saber se a IA funciona seria tentar uma ação de verdade.
+- **Chamada de IA não passa pelo `sbFetch()`.** Vai para `functions/v1`, não `/rest/v1` — e
+  por isso **não entra na fila de pendências**, o que é intencional: pergunta guardada para
+  amanhã não faz sentido. `podeUsarIA()` esconde os botões quando `offline`.
+- **A IA propõe, o usuário aceita.** Nada que ela devolve vira linha sem passar por uma
+  caixinha marcada. E o `item_id` que ela sugere é conferido contra os itens reais do tema
+  antes de gravar — id inventado faria o banco recusar o lote inteiro.
 - **A chave da Anthropic NUNCA pode ir para o `index.html`.** A anon key do Supabase é
   pública porque o RLS a protege; a da Anthropic não tem nada atrás dela — quem abrir o
   "ver fonte" gasta o dinheiro dele. Ela vive só como secret da Edge Function.
@@ -193,8 +203,8 @@ Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirm
 | Materiais de estudo | ✅ no ar; **falta ele rodar o `supabase-materiais.sql`** |
 | App instalado offline (retry, retrato, fila) | ✅ 2026-07-28, commit `a250216` |
 | **IA — Fase 1** (SQL + Edge Function) | ✅ escrita; **bloqueada na chave da Anthropic, que ele ainda não tem** |
-| **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ⏳ próxima |
-| **IA — Fase 3** (`#revisar`, revisão espaçada) | ⏳ |
+| **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ✅ escrita; some da tela até a função responder ao `ping` |
+| **IA — Fase 3** (`#revisar`, revisão espaçada) | ✅ escrita |
 | Quadro de projeto (pessoal → grupo) | ⏳ desenhado no plano, nada escrito |
 
 O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,

@@ -202,6 +202,15 @@ coisas offline.
   do navegador escondida, então o elemento se estende por baixo da barra e a parte de baixo
   some. `dvh` acompanha a barra. `.chat-painel` declara `vh` e `dvh` em sequência de
   propósito — a primeira é reserva para navegador que não conhece a segunda.
+- **Excluir item concluído apaga história de estudo, em silêncio.** A cadeia é toda
+  `on delete cascade`: `temas` → `itens` → `progresso` e `ia_cartoes`. Como `progresso` é a
+  **única** fonte de `calcularSequencia()`, de `diasDeEstudo()` (mapa de 12 semanas) e da data
+  do `selo()`, excluir um item para "limpar a tela" apaga a prova de que se estudou naquele
+  dia — a sequência cai, o mapa perde quadradinhos e os cartões daquele item somem. Excluir um
+  **tema** faz isso com o tema inteiro. Nenhum aviso, nenhum erro: a tela passa a mostrar
+  menos estudo do que houve. Até o item 6 do `PLANO.md` existir (arquivar em vez de excluir), a
+  única proteção é **não excluir nada que esteja concluído** — e isso precisa ser dito a ele,
+  porque a perda é invisível.
 - **`:empty` também casa com o `.check-vazio`.** O `<span></span>` que `acoesItem()` devolve
   para quem não pode editar precisa desaparecer no layout de duas colunas, senão o `gap`
   abre 14px de sobra. Mas o placeholder do ✓ no modo modelo é igualmente um span vazio e
@@ -273,6 +282,14 @@ velho.
 | 2 | **Botão 🔍 no material sem link** — abre `google.com/search?q=<título + tema>`. Patch do vão que a perda da busca na web abriu. `encodeURIComponent` é obrigatório; o botão fica fora do `podeEditar()`, porque buscar não é editar | ~5 linhas |
 | 3 | **Busca global** — um campo procurando em tema, item, detalhe, **anotação** e material. Puro cliente, o `state` já tem tudo. Precisa de um `normalizar()` com `NFD` + remover diacrítico, senão "revisao" não acha "revisão". Ao destacar o trecho casado: `esc()` **primeiro**, marcação depois | baixo |
 | 4 | **Quadro de projeto** — Fase 2a (`projetos`/`tarefas`/`tarefa_comentarios`, `grupo_id` nulo = pessoal) e depois 2b (`grupos`, entrar por código, `eh_membro()` `security definer`). Desenho completo no plano antigo | grande |
+| 5 | **Arquivo do que já foi estudado** *(pedido dele, 2026-07-29)* — **6a**: tela `#historico`, só leitura, **zero mudança de schema**, porque `progresso` + `itens.nota` já guardam tudo. **6b**: `arquivado_em` em `itens`/`temas`, para tirar da lista sem destruir. Vem cedo por causa da armadilha de cascade acima | 6a baixo · 6b médio |
+| 6 | **Importar qualquer arquivo** *(pedido dele, 2026-07-29)* — `.txt`/`.md` direto; `.docx` sem biblioteca nenhuma, via `DecompressionStream("deflate-raw")` (é ZIP com `word/document.xml`); depois uma ação nova de IA `estruturar_trilha` com esquema, caindo no painel de aceite. `.pdf` fora de escopo | médio |
+
+Detalhe dos itens 5 e 6 no `PLANO.md`, com as armadilhas: o teto de tamanho do arquivo (um
+`.docx` grande queima uma das 12 chamadas do dia sem devolver nada), TXT do Word vindo em
+`windows-1252` e não UTF-8, conteúdo de arquivo ser entrada não confiável, e o fato de que
+importar tem que **acrescentar** — reaproveitar `substituirTrilha()` sem pensar repete o
+acidente que quase apagou a trilha oficial de todos.
 
 **Uma dependência que vale resolver cedo:** as verificações de RLS exigem uma **segunda
 conta Google** — a versão fraca (uuid inventado → 404) não distingue "o RLS filtrou" de

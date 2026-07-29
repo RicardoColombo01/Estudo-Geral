@@ -228,6 +228,134 @@ Resumo do que decide a forma:
 
 ---
 
+## Item 6 — Arquivo do que já foi estudado (arquivar em vez de excluir)
+
+**Pedido dele, 2026-07-29:** *"a cada coisa concluída com sucesso, fique armazenado em alguma
+parte para poder ser consultada […] fazendo assim não precisar ficar excluindo o item"*.
+
+### O achado que torna isto urgente
+
+A cadeia de chaves estrangeiras é toda `on delete cascade`:
+
+```
+temas ──cascade──▶ itens ──cascade──▶ progresso   (item_id, concluido_em)
+                         └─cascade──▶ ia_cartoes  (item_id, tema_id)
+```
+
+E `progresso` é a **única** fonte de `calcularSequencia()`, de `diasDeEstudo()` (o mapa de
+atividade de 12 semanas) e da data que aparece no `selo()`.
+
+**Consequência:** excluir um item concluído para "limpar a tela" apaga a linha de `progresso`
+— e com ela a prova de que ele estudou naquele dia. A sequência cai, o mapa de 12 semanas
+perde quadradinhos e os cartões de revisão daquele item desaparecem. **Excluir um tema faz
+isso com o tema inteiro de uma vez.** Nenhum aviso, nenhum erro: o histórico é reescrito
+retroativamente e a tela mostra um número menor como se ele tivesse estudado menos.
+
+> **Mitigação disponível hoje, de graça:** não excluir item nem tema **concluído**. Enquanto
+> o item 6 não existir, essa é a única proteção — e vale dizer a ele em voz alta, porque a
+> perda é invisível.
+
+### A boa notícia: o dado já está guardado
+
+Nada precisa ser criado para *consultar* o histórico. `progresso` já tem `item_id` e
+`concluido_em`, `itens` já tem `nota`, e o cliente já mantém `progressoEm` (Map id→ISO) e
+`chaveDia()`. O que falta é **um lugar para ver** e **um jeito de tirar da frente sem
+destruir**. São duas partes independentes, e a ordem importa.
+
+### 6a — Tela `#historico` *(zero mudança de schema, faz sozinha o que ele pediu)*
+
+Somente leitura: tudo que foi concluído, mais recente primeiro, agrupado por mês, cada linha
+com o tema, a data e a **anotação** — que é o conteúdo escrito por ele e hoje só aparece
+abrindo o item. Reaproveita `progressoEm`, `chaveDia()` e o formato de
+`linhaMaterial(m, aba, true)`, que já mostra "de qual tema" na tela global.
+
+Pode subir sozinha, sem risco nenhum, e já entrega o "poder ser consultada".
+
+### 6b — Arquivar *(a parte que substitui o excluir)*
+
+```sql
+alter table public.itens add column if not exists arquivado_em timestamptz;
+alter table public.temas add column if not exists arquivado_em timestamptz;
+```
+
+Item arquivado sai da lista ativa e **mantém** progresso, anotação e cartões. Segue a regra de
+degradação do projeto: `detectarColunas()` sonda a coluna; sem ela, o botão não aparece e nada
+quebra — então a ordem entre rodar o SQL e dar push continua não importando.
+
+Na tela: um chip "mostrar arquivados" reaproveitando `.mat-filtros`, que já existe.
+
+> ⚠️ **O custo escondido é o mesmo da ideia "Desfazer": toda leitura precisa passar a
+> filtrar.** `carregarTrilha()`, `stats()`, `totals()`, `viewAfazer()` e a tela `#materiais`.
+> Esquecer **um** faz as telas discordarem entre si sem dar erro. O caso mais traiçoeiro é o
+> `stats()`: ele conta `a.itens.length` como denominador, então item arquivado não filtrado
+> **derruba a porcentagem** — e a tela mostra regressão onde houve arrumação.
+
+`marcarTodosDoTema()` foi escrita pelo Ricardo: não reescrever sem perguntar.
+
+---
+
+## Item 7 — Importar qualquer arquivo e virar trilha
+
+**Pedido dele, 2026-07-29:** *"colocar um WORD lá, ou TXT, o programa ler o arquivo, e
+realizar a criação da tabela"*.
+
+Hoje só existe `substituirTrilha()`, que aceita **JSON** e **substitui** a trilha.
+
+### A divisão que faz o problema virar tratável
+
+Duas metades, cada uma resolvida pela ferramenta certa:
+
+| | Quem faz | Por quê |
+|---|---|---|
+| **extrair o texto** do arquivo | o cliente, sem biblioteca | é determinístico: descompactar e tirar marcação não admite palpite |
+| **decidir o que é tema e o que é item** | a IA, com esquema | é justamente o julgamento difuso em que o modelo é bom e o parser é ruim |
+
+### 7a — Extração no cliente
+
+- **`.txt` / `.md` / `.csv`** — `FileReader`, direto. **Cuidado com a codificação:** TXT
+  exportado do Word costuma vir em `windows-1252`, não UTF-8. Decodificar como UTF-8 e, se
+  aparecer `U+FFFD` no resultado, redecodificar com `new TextDecoder("windows-1252")`. Sem
+  isso, todo acento vira caractere quebrado — e o arquivo "importou", só ilegível.
+- **`.docx`** — é um ZIP com o texto em `word/document.xml`. Dá para ler **sem CDN e sem
+  build**: o navegador tem `DecompressionStream("deflate-raw")`. Localizar a entrada no
+  diretório central, inflar, tratar `<w:p>` como parágrafo e remover o resto das tags. ~40
+  linhas. É isto que mantém a regra do arquivo único intacta — nenhuma dependência nova.
+- **`.doc`** (binário pré-2007) — não vale o esforço. A tela pede "Salvar como .docx".
+- **`.pdf`** — fora de escopo. Extrair texto de PDF exige lidar com fontes e posicionamento;
+  é `pdf.js` e é outro produto. Dizer isso na tela em vez de tentar e falhar torto.
+
+### 7b — Estruturação pela IA
+
+Ação nova `estruturar_trilha`, com `responseSchema`:
+
+```
+{ temas: [ { nome, emoji, resumo, itens: [ { texto, detalhe } ] } ] }
+```
+
+O resultado cai no **painel de aceite que já existe** — a regra do projeto continua: a IA
+propõe, você aceita. Pelo próprio plano, ação nova é "um prompt, um esquema e um botão".
+
+### Cinco armadilhas para não descobrir na hora
+
+1. **Teto de tamanho, e dito na tela.** Um `.docx` de 300 páginas estoura o contexto e
+   **queima uma das 12 chamadas do dia** sem devolver nada. Cortar em ~40 mil caracteres e
+   **avisar o que foi cortado**: truncar em silêncio faz ele acreditar que o arquivo todo
+   entrou.
+2. **Conteúdo de arquivo é entrada não confiável.** Todo texto passa por `esc()`, todo
+   endereço por `urlSegura()`. Um `.docx` pode perfeitamente conter `javascript:` num trecho
+   que viraria link — é a mesma armadilha de URL digitada, com outra porta de entrada.
+3. **Importar tem que ACRESCENTAR, não substituir.** `substituirTrilha()` apaga, e ela já
+   quase apagou a trilha oficial de todos uma vez por confiar no RLS em vez de filtrar por
+   dono. Reaproveitar aquele caminho sem pensar repete o acidente. Liga com a ideia "mesclar
+   trilha importada".
+4. **Sem rede não funciona, e a tela precisa dizer.** Depende da Edge Function;
+   `podeUsarIA()` já esconde botão quando `offline` — o botão de importar segue a mesma regra.
+5. **Degradação para quando a IA não estiver disponível:** um parser burro de markdown
+   (`#` = tema, `- ` = item) ainda serve para `.md` e `.txt`. Menos esperto, sempre
+   disponível, e coerente com o resto do projeto.
+
+---
+
 ## Mais ideias
 
 Ordenadas por (valor ÷ esforço), com o porquê. As cinco primeiras nasceram do estado atual;
@@ -250,7 +378,16 @@ as últimas vêm da Parte 3 do plano antigo e seguem valendo.
 
 ## Ordem sugerida
 
-**2 → 1 → 3 → mais-ideias nº 1 → 4 → 5**
+**2 → 6a → 1 → 3 → mais-ideias nº 1 → 6b → 7 → 4 → 5**
+
+O **6a** subiu para logo depois da correção de tela por um motivo que não é de recurso, é de
+perda de dado: enquanto ele não existe, cada exclusão de item concluído apaga história de
+estudo em silêncio. A tela de histórico custa zero mudança de schema, já entrega o que ele
+pediu, e passa a dar um lugar para onde olhar antes de excluir qualquer coisa. O **6b**
+(arquivar) vem mais tarde porque mexe em toda leitura, e isso é trabalho de verdade.
+
+O **7** (importar arquivo) fica depois do 6b de propósito: importar aumenta a quantidade de
+itens na tela, e sem o arquivar a tela fica pior justamente por causa do recurso novo.
 
 O item 2 passou para a frente: são duas linhas de CSS que multiplicam por cinco a largura do
 texto, e **é o que decide se a IA que acabou de subir vai ser usada ou abandonada**. Recurso

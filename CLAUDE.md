@@ -239,12 +239,23 @@ pomodoro, exportar caderno, push, desfazer). Vale ler antes de propor qualquer u
 `C:\Users\ricar\.claude\plans\plano-depois-da-ia.md`. Ordem sugerida e aprovada por ele
 como plano (nada autorizado a construir ainda):
 
-| | | Esforço |
+| Ordem | | Esforço |
 |---|---|---|
-| 1 | **Exercitar cartões e `#revisar`** — escritos em 2026-07-28 e **nunca executados**; inclui as 3 verificações que dependiam de a IA responder, entre elas o teste de RLS no contexto | zero código |
-| 2 | **Botão 🔍 no material sem link** — patch do vão que a perda da busca na web abriu | ~5 linhas |
-| 3 | **Busca global** (itens, anotações, materiais) — puro cliente | baixo |
-| 4 | **Quadro de projeto** (Fase 2a → 2b do plano antigo) | grande |
+| 1º | **Legibilidade da IA no celular** — o texto cai numa coluna de ~46px; ver abaixo | 2 linhas de CSS |
+| 2º | **Exercitar cartões e `#revisar`** — escritos em 2026-07-28 e **nunca executados**; inclui as 3 verificações que dependiam de a IA responder, entre elas o teste de RLS no contexto | zero código |
+| 3º | **Botão 🔍 no material sem link** — patch do vão que a perda da busca na web abriu | ~5 linhas |
+| 4º | **Busca global** (itens, anotações, materiais) — puro cliente | baixo |
+| 5º | **Quadro de projeto** (Fase 2a → 2b do plano antigo) | grande |
+
+**O defeito de layout, porque é sutil e vai reaparecer:** `.item` é um grid
+`26px 1fr auto`, e o texto da IA renderiza dentro do `1fr`. Os botões da coluna `auto` têm
+`white-space:nowrap` e **não encolhem**; `.item-body{min-width:0}` deixa o `1fr` ser
+esmagado até zero. Num celular de 360px sobram **~46px** para o texto — e no desktop o
+defeito não existe, então não aparece na tela de quem desenvolve. Correção no
+`@media (max-width:640px)` que já existe: `.item{grid-template-columns:26px 1fr}` mais
+`.item-actions{grid-column:1 / -1}`. Vale para anotação e material também, pelo mesmo motivo.
+Relacionado: `vh` no celular é medido contra o viewport **maior** (barra do navegador
+escondida) — `.chat-painel` deve usar `dvh`.
 
 O plano novo tem mais 10 ideias com o porquê de cada uma, e registra uma dependência que
 vale saber cedo: **as verificações de RLS exigem uma segunda conta Google**, a mesma que a

@@ -1733,7 +1733,7 @@ function painelIA(aba){
   if(iaPainel.carregando){
     return `<div class="ia-painel"><div class="section-label">✨ ${iaPainel.tipo === "materiais" ? "procurando materiais" : "montando cartões"}</div>
       <p class="ia-texto pensando">${iaPainel.tipo === "materiais"
-        ? "Pesquisando na web e conferindo o que você já salvou…"
+        ? "Lembrando de materiais do tema e conferindo o que você já salvou…"
         : "Lendo suas anotações e os itens concluídos…"}</p></div>`;
   }
   if(iaPainel.erro){
@@ -1755,11 +1755,19 @@ function painelIA(aba){
     if(iaPainel.tipo === "materiais"){
       const t = TIPOS_MAT[x.tipo] || TIPOS_MAT.outro;
       const href = urlSegura(x.url);
+      /* Três estados, não dois. Sem busca na web, a IA foi instruída a
+         deixar o endereço VAZIO em vez de inventar um link — e vazio é o
+         resultado certo, não um defeito. Só merece vermelho o endereço
+         que veio preenchido e não serve. */
+      const proc = href ? esc(dominio(href))
+        : (String(x.url||"").trim()
+            ? `<span class="perigo">endereço inválido — não será salvo como link</span>`
+            : "sem link — procure pelo título");
       return `<li class="item nov-item">
         <input type="checkbox" class="nov-check" data-ia="${k}" id="ia-${k}" checked>
         <div class="item-body">
           <label class="item-text" for="ia-${k}">${t.emoji} ${esc(x.titulo)}</label>
-          <p class="item-detail">${href?esc(dominio(href)):`<span class="perigo">endereço inválido — não será salvo como link</span>`}${x.nota?` · ${esc(x.nota)}`:""}</p>
+          <p class="item-detail">${proc}${x.nota?` · ${esc(x.nota)}`:""}</p>
         </div></li>`;
     }
     return `<li class="item nov-item">
@@ -2455,11 +2463,17 @@ document.addEventListener("click", async e=>{
         const lista = tipo === "materiais" ? (r.sugestoes || []) : (r.cartoes || []);
         /* Não oferecer o que já está salvo: a IA foi instruída a evitar,
            mas conferir aqui é barato e não depende de ela obedecer. */
-        const jaTenho = new Set((aba.materiais||[]).map(m=>(m.url||"").trim().toLowerCase()));
+        /* Chave vazia fora do Set, senão a dedup se volta contra nós: um
+           único material já salvo sem endereço faria TODA sugestão sem
+           endereço ser descartada — e a tela diria "nada novo", sem erro
+           nenhum. Sem busca na web, sugestão sem endereço é o caso comum. */
+        const jaTenho = new Set((aba.materiais||[])
+          .map(m=>(m.url||"").trim().toLowerCase()).filter(Boolean));
+        const chave = x => String(x.url||"").trim().toLowerCase();
         iaPainel = {
           tipo, abaId: aba.id, carregando: false, erro: "",
           itens: tipo === "materiais"
-            ? lista.filter(x=>x && x.titulo && !jaTenho.has(String(x.url||"").trim().toLowerCase()))
+            ? lista.filter(x=>x && x.titulo && !(chave(x) && jaTenho.has(chave(x))))
             : lista.filter(x=>x && x.pergunta && x.resposta)
         };
       }catch(e){

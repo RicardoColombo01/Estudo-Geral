@@ -24,8 +24,9 @@ Login: **Google OAuth**. Dono: RicardoColombo01.
 - Mural em tempo real, modo admin do modelo, novidades do modelo, anotações por item e
   PWA instalável *(Fases 3–7; o Ricardo confirmou em 2026-07-28 que rodou o
   `supabase-evolucao.sql` e instalou o app no celular)*
-- **Materiais de estudo** por tema + tela `#materiais` *(no ar; depende do
-  `supabase-materiais.sql`, que ele ainda precisa rodar)*
+- **Materiais de estudo** por tema + tela `#materiais` *(no ar; `supabase-materiais.sql` rodado)*
+- **IA** — botões ✨ (explicar item, sugerir materiais, gerar cartões), chat por tema e
+  `#revisar` *(no ar desde 2026-07-29, rodando no **Gemini**; ver a seção de estado)*
 
 ## A regra que organiza tudo
 
@@ -99,7 +100,7 @@ coisas offline.
 | `supabase-evolucao.sql` | Fases 3–6: realtime, `admins`, `origem_id`+`modelo_dispensado`, `nota`. Só adiciona policies |
 | `supabase-materiais.sql` | Tabela `materiais` (links por tema) + trigger de cadastro copiando materiais |
 | `supabase-ia.sql` | `ia_uso` (freio + extrato) e `ia_cartoes`. `registrar_uso_ia()` só para a service_role |
-| `supabase/functions/ia/index.ts` | Edge Function. **O único lugar com a chave da Anthropic** |
+| `supabase/functions/ia/index.ts` | Edge Function. **O único lugar com a chave do Gemini** |
 | `manifest.json`, `sw.js`, `icon-*.png` | PWA. O `sw.js` nunca intercepta `supabase.co` |
 | `data.json` | Backup versionável (está com a semente antiga; regerar pelo Exportar) |
 
@@ -126,9 +127,33 @@ coisas offline.
 - **A IA propõe, o usuário aceita.** Nada que ela devolve vira linha sem passar por uma
   caixinha marcada. E o `item_id` que ela sugere é conferido contra os itens reais do tema
   antes de gravar — id inventado faria o banco recusar o lote inteiro.
-- **A chave da Anthropic NUNCA pode ir para o `index.html`.** A anon key do Supabase é
-  pública porque o RLS a protege; a da Anthropic não tem nada atrás dela — quem abrir o
-  "ver fonte" gasta o dinheiro dele. Ela vive só como secret da Edge Function.
+- **A chave do Gemini NUNCA pode ir para o `index.html`.** A anon key do Supabase é
+  pública porque o RLS a protege; a do Gemini não tem nada atrás dela — quem abrir o
+  "ver fonte" gasta a cota dele. Ela vive só como secret da Edge Function.
+- **Grounding com Google Search não existe no tier grátis do Gemini.** Não é cota baixa: a
+  tabela de preços diz *"Not available"*. Mandar `tools:[{google_search:{}}]` faz **toda**
+  chamada morrer em 429 — inclusive a primeira do dia — e a mensagem do Google fala de
+  "quota/billing", o que parece limite de uso e não recurso ausente. Por isso a busca vive
+  atrás do secret `GEMINI_BUSCA` (padrão `0`); só ligar se a conta tiver faturamento.
+- **Sem busca, o risco muda de lugar: a IA erra o endereço, não o assunto.** Link profundo
+  inventado (`watch?v=...`) entra na lista parecendo bom e só se revela morto semanas
+  depois. O prompt manda **deixar `url` vazio em vez de arriscar** e pôr o termo de busca
+  na `nota`. `url` é `not null default ''` no banco, então vazio é linha válida.
+- **Chave vazia em `Set` de deduplicação descarta o caso comum.** A dedup do painel de
+  aceite usava a URL como chave: um único material salvo sem endereço fazia *toda* sugestão
+  sem endereço desaparecer, com a tela dizendo "nada novo" e nenhum erro. Chave vazia fica
+  fora do `Set`.
+- **O raciocínio do Gemini chega como parte irmã do texto.** Nas `parts` da resposta, o
+  rascunho vem marcado com `thought:true`. Não filtrar vaza o "pensando alto" do modelo
+  dentro da resposta — é o que `textoDasPartes()` existe para evitar.
+- **O raciocínio é cobrado do mesmo `maxOutputTokens`.** Teto apertado termina em
+  `finishReason:"MAX_TOKENS"` com texto **vazio** — falha muda que parece "a IA não
+  respondeu". Daí a folga (16000/8000) e a checagem explícita de MAX_TOKENS.
+- **Recusa em ação de streaming tem que sair em TEXTO.** `iaStream()` só concatena bytes,
+  não olha o status: devolver `{"recusado":true}` com 200 numa ação de conversa mostraria o
+  JSON cru na tela. Só as ações de proposta podem responder em JSON.
+- **O nome do modelo vem de secret (`GEMINI_MODELO`), não do código.** Quando a camada
+  gratuita deixa de servir um modelo, a correção é um `secrets set` — sem redeploy.
 - **Na Edge Function, dois clientes com papéis diferentes.** O contexto é lido com o **JWT
   de quem chamou** (o RLS continua valendo, e ninguém pede a trilha de outra conta); o
   contador de uso é escrito com a **service_role** (se o usuário pudesse escrever em
@@ -200,36 +225,44 @@ Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirm
 
 | | Estado |
 |---|---|
-| Materiais de estudo | ✅ no ar; **falta ele rodar o `supabase-materiais.sql`** |
+| Materiais de estudo | ✅ no ar; `supabase-materiais.sql` rodado |
 | App instalado offline (retry, retrato, fila) | ✅ 2026-07-28, commit `a250216` |
-| **IA — Fase 1** (SQL + Edge Function) | ✅ escrita; **bloqueada na chave da Anthropic, que ele ainda não tem** |
-| **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ✅ escrita; some da tela até a função responder ao `ping` |
+| **IA — Fase 1** (SQL + Edge Function) | ✅ **no ar e funcionando com o Gemini** desde 2026-07-29 |
+| **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ✅ no ar, testado pelo Ricardo |
 | **IA — Fase 3** (`#revisar`, revisão espaçada) | ✅ escrita |
-
-### Estado em 2026-07-29 — tudo pronto, parado só na chave paga
-
-Infraestrutura **inteira no ar e conferida**:
-
-| | |
-|---|---|
-| CLI do Supabase | instalada em `C:\Users\ricar\supabase-cli`, no PATH, Ricardo logado |
-| Função `ia` | publicada; 401 anônimo **com a nossa mensagem** (prova que é o nosso código, não o gateway) |
-| `supabase-materiais.sql` e `supabase-ia.sql` | rodados; `materiais`, `ia_uso` e `ia_cartoes` existem |
-| Escrita anônima | 401 em todas |
-| Botões ✨ e bolha 💬 | aparecem na tela |
-
-**O que falta é só uma coisa:** a conta da Anthropic não tem crédito, e o Ricardo disse
-que **não consegue pôr os US$5 mínimos**. A API responde `invalid x-api-key` /
-`credit balance is too low`, e o app mostra o erro dentro do painel — sem quebrar nada.
-
-> ⚠️ **A decisão dele: adaptar a função para o Gemini gratuito, e SÓ quando ele autorizar.**
-> Não começar essa migração sozinho, e **não sugerir de novo pôr crédito na Anthropic** —
-> ele já respondeu que não dá. O que a troca custa: perde a busca na web integrada, o
-> formato estruturado fica menos garantido, e as explicações caem um degrau.
 | Quadro de projeto (pessoal → grupo) | ⏳ desenhado no plano, nada escrito |
 
 O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,
 pomodoro, exportar caderno, push, desfazer). Vale ler antes de propor qualquer uma.
+
+### Estado em 2026-07-29 — a IA está no ar, rodando no Gemini
+
+A conta da Anthropic exigia crédito mínimo pago e o Ricardo não podia pôr os US$5. A função
+foi migrada para o **Gemini**, com o contrato do cliente **idêntico** — `chamarIA()`,
+`iaStream()` e `detectarIA()` não mudaram uma linha, porque o `index.html` sempre falou com
+a nossa função, nunca com o provedor. Ele testou e confirmou: chat, explicar e materiais.
+
+> ⛔ **Não sugerir voltar para a Anthropic nem pôr crédito lá.** Assunto encerrado.
+
+| | |
+|---|---|
+| CLI do Supabase | instalada em `C:\Users\ricar\supabase-cli`, no PATH, Ricardo logado |
+| Secrets da função | `GEMINI_API_KEY` (do AI Studio, projeto sem faturamento). `ANTHROPIC_API_KEY` removida |
+| Opcionais | `GEMINI_MODELO` (padrão `gemini-3.6-flash`), `GEMINI_BUSCA` (padrão `0` = sem busca na web) |
+| Sem SDK | `fetch` cru para `generativelanguage.googleapis.com/v1beta`; chave no cabeçalho `x-goog-api-key`, nunca em `?key=` |
+| Tradução de papel | Gemini chama o interlocutor de `model`, não `assistant` — traduzido na função, o histórico do cliente é dele |
+
+**Duas coisas conhecidas e ainda em aberto:**
+
+1. **`LIMITE_DIA = 40` provavelmente está acima do teto real.** Ele foi calibrado quando o
+   limite era dinheiro por conta; agora a cota diária é do **Google, sobre a chave**,
+   compartilhada por todos os usuários do app. Há relatos de tier grátis em 20/dia desde
+   dezembro de 2025 — nesse caso o freio nunca freia e o usuário descobre o limite pelo erro
+   do Google no meio de um pedido. O lugar da correção está marcado no `index.ts`
+   (`DECISÃO EM ABERTO`): baixar o número, ou somar `ia_uso` do dia sem filtrar `user_id`
+   para um teto global. **É decisão do Ricardo, ele ainda não respondeu.**
+2. **Privacidade do tier grátis.** O Google usa o conteúdo enviado para melhorar os produtos
+   dele, e o contexto que a função monta inclui as anotações por item. Ele foi avisado.
 
 > ⚠️ **NÃO SEGUIR PARA A PRÓXIMA FASE SEM O RICARDO AUTORIZAR.** Uma fase por vez,
 > commit próprio.

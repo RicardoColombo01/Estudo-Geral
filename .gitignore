@@ -11,3 +11,5 @@ $RECYCLE.BIN/
 .idea/
 *.swp
 *~
+
+supabase/.temp/

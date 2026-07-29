@@ -157,10 +157,22 @@ tem conta como **novidade**, igual a temas e itens.
 O app é um PWA. No Chrome do Android: menu → **Instalar app**. No iPhone, Safari →
 **Compartilhar** → **Adicionar à Tela de Início**.
 
-Instalado, ele abre em tela cheia, sem barra de navegador. O service worker guarda só o
-**casco** (HTML, ícones, manifest) — **dados nunca**: toda chamada ao Supabase passa direto
-para a rede. E o documento é *network-first*, então um `git push` novo aparece no próximo
-abrir, sem "por que meu app não atualizou?".
+Instalado, ele abre em tela cheia, sem barra de navegador. O service worker guarda o
+**casco** (HTML, ícones, manifest e o SDK do Supabase) — **dados nunca**: toda chamada ao
+banco passa direto para a rede. E o documento é *network-first*, então um `git push` novo
+aparece no próximo abrir, sem "por que meu app não atualizou?".
+
+### Sem conexão
+
+O celular costuma abrir o app antes de o rádio acordar. Para isso não virar problema:
+
+- a carga **tenta três vezes** antes de assumir que está sem rede;
+- sem rede, você vê **a sua trilha como estava na última vez** (não a trilha genérica
+  embutida no arquivo), com uma faixa no topo dizendo de quando é;
+- o que você **marcar, editar, anotar ou criar** entra numa fila e **sobe sozinho** quando
+  a conexão volta — a faixa mostra quantas alterações estão esperando;
+- voltando a rede (ou trazendo o app para a frente), ele reconecta e envia sozinho; dá
+  para forçar no botão **↻ Tentar agora**.
 
 ## 🌿 Fluxo com o git
 

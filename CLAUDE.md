@@ -47,7 +47,8 @@ Três decisões fazem o cliente quase não precisar saber disso:
 
 | Camada | Funções |
 |---|---|
-| Rede (porta única) | `sbFetch()`, `salvarNoServidor()` |
+| Rede (porta única) | `sbFetch()`, `cabecalhosSb()`, `salvarNoServidor()`, `novoId()` |
+| Offline | `fila`/`enfileirar()`/`enviarFila()`, `guardarRetrato()`/`lerRetrato()`, `tentarReconectar()`, `faixaRede()` |
 | Auth | `sbClient` (SDK), `entrar()`, `sair()`, `logado()`, `podeEditar()`, `meuNome()` |
 | Carga | `load()`, `carregarTrilha()`, `carregarProgresso()`, `recarregar()` |
 | Progresso | `progresso` (Set), `marcarItem()`, `aplicarProgresso()`, `sincProgresso()` |
@@ -68,6 +69,15 @@ cada recurso. Sem `nota` não aparece o botão 📝; sem `origem_id` não há no
 `admins` ninguém é admin. Por isso a ordem entre rodar o SQL e dar push **não importa** — não
 existe janela com o site quebrado. Qualquer recurso novo que dependa de schema deve seguir
 esse mesmo padrão.
+
+**Como o app se vira sem rede (corrigido em 2026-07-28):**
+`sbFetch()` distingue *não chegou ao servidor* (fetch rejeita) de *o servidor recusou*
+(`r.ok` falso, e o erro sai com `.status`). Só o primeiro caso vira pendência na fila —
+repetir um 403 mil vezes não conserta nada. `load()` tenta 3 vezes antes de desistir,
+porque abrir o app instalado é justamente quando o rádio do celular ainda está acordando.
+Sem rede, a tela vem do **retrato** (última cópia boa, chaveada por usuário) e nunca da
+SEED. Os ids das linhas novas nascem no cliente (`novoId()`), que é o que permite criar
+coisas offline.
 
 **Invariantes que devem ser preservadas:**
 
@@ -104,6 +114,13 @@ esse mesmo padrão.
   devolveria `#access_token=` e atropelaria o `route()`.
 - **SDK via `<script src>` UMD, nunca `type="module"`** — módulo ES quebra o `file://`, e o
   duplo clique no arquivo precisa continuar funcionando.
+- **Uma falha de rede na abertura envenenava a sessão inteira.** `detectarColunas()`
+  marcava `colunasDetectadas = true` antes de sondar, então "sem rede" virava "esta coluna
+  não existe" e materiais/notas/novidades ficavam desligados até recarregar a página.
+  Sondagem que não fala com o servidor agora devolve `null` e não trava nada.
+- **`persist()` só grava no modo offline.** Era por isso que abrir sem rede mostrava a
+  SEED: não havia nada guardado do usuário. Quem cuida disso agora é o `guardarRetrato()`,
+  chamado em toda carga e toda escrita bem-sucedida.
 - **URL digitada por usuário é vetor de XSS.** `esc()` protege as aspas do atributo, mas
   não o **esquema**: `javascript:...` num `href` executa. Todo endereço que virar link
   passa por `urlSegura()`, que só aceita `http:` e `https:` — o resto vira texto. Vale

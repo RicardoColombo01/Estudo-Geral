@@ -13,18 +13,28 @@
    app não atualizou" — o erro mais fácil de cometer com service worker.
    ===================================================================== */
 
-const CACHE = "trilha-casco-v3";
+const CACHE = "trilha-casco-v4";
 
 /* Só o que tem endereço fixo e é pequeno. O index.html não entra aqui:
    ele é guardado no primeiro acesso pelo próprio redePrimeiro(), então um
    arquivo faltando nunca derruba a instalação inteira. */
 const CASCO = ["./manifest.json", "./icon-192.png", "./icon-512.png"];
 
+/* A ÚNICA exceção à regra de não tocar em outra origem.
+   O SDK do Supabase é CÓDIGO, não dado — e é ele que guarda e restaura a
+   sessão. Sem ele o app instalado abre deslogado toda vez que a rede
+   titubeia, e aí não sabe nem de quem é a trilha que tem guardada.
+   supabase.co (dados e autenticação) continua sempre indo à rede. */
+const SDK = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+
 self.addEventListener("install", (e) => {
   e.waitUntil((async () => {
     const cache = await caches.open(CACHE);
     /* allSettled, não addAll: se um ícone falhar, o resto ainda instala. */
-    await Promise.allSettled(CASCO.map((u) => cache.add(u)));
+    await Promise.allSettled([
+      ...CASCO.map((u) => cache.add(u)),
+      baixarSdk(cache, new Request(SDK)),
+    ]);
     self.skipWaiting();
   })());
 });
@@ -41,8 +51,11 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
 
+  /* O SDK vem antes da checagem de origem — é a exceção descrita lá em cima. */
+  if (req.url.startsWith(SDK)) { e.respondWith(sdkPrimeiroDoCache(e, req)); return; }
+
   const url = new URL(req.url);
-  /* Outra origem = Supabase (dados, auth, realtime) ou o CDN do SDK.
+  /* Qualquer outra origem = Supabase (dados, auth, realtime).
      Não interceptar: deixa passar exatamente como o navegador faria. */
   if (url.origin !== self.location.origin) return;
 
@@ -74,8 +87,40 @@ async function redePrimeiro(req) {
   }
 }
 
+/* SDK: serve a cópia local na hora e atualiza atrás. Assim o app abre
+   rápido, abre sem rede, e mesmo assim não fica preso numa versão velha —
+   a próxima abertura já usa a que baixou agora. */
+async function sdkPrimeiroDoCache(e, req) {
+  const cache = await caches.open(CACHE);
+  const guardado = await cache.match(req);
+  if (guardado) {
+    e.waitUntil(baixarSdk(cache, req).catch(() => {}));
+    return guardado;
+  }
+  const resp = await fetch(req);
+  e.waitUntil(guardarSdk(cache, req, resp.clone()).catch(() => {}));
+  return resp;
+}
+
+async function baixarSdk(cache, req) {
+  const resp = await fetch(req);
+  return guardarSdk(cache, req, resp);
+}
+
+/* Reembala a resposta antes de guardar: o jsdelivr responde com um
+   redirecionamento para o arquivo com versão, e o Cache API se recusa a
+   guardar resposta redirecionada. Copiar o corpo tira essa marca. */
+async function guardarSdk(cache, req, resp) {
+  if (!resp || !resp.ok) return;
+  const corpo = await resp.blob();
+  await cache.put(req, new Response(corpo, {
+    status: 200,
+    headers: { "Content-Type": resp.headers.get("Content-Type") || "text/javascript" },
+  }));
+}
+
 /* Ícones e manifest quase nunca mudam: servir do cache é instantâneo, e
-   quando mudarem o CACHE novo (v4, v5…) invalida tudo de uma vez. */
+   quando mudarem o CACHE novo (v5, v6…) invalida tudo de uma vez. */
 async function cachePrimeiro(req) {
   const cache = await caches.open(CACHE);
   const guardado = await cache.match(req);

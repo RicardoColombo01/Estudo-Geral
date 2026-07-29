@@ -257,6 +257,7 @@ button{font-family:inherit}
 .faixa b{color:var(--ink)}
 .faixa.modelo{background:color-mix(in srgb, var(--gold) 16%, var(--panel)); border-bottom:1px solid color-mix(in srgb, var(--gold) 45%, var(--line))}
 .faixa.nov{background:color-mix(in srgb, var(--accent) 12%, var(--panel)); border-bottom:1px solid color-mix(in srgb, var(--accent) 40%, var(--line))}
+.faixa.rede{background:var(--panel-2); border-bottom:1px solid var(--line); color:var(--ink-dim)}
 .faixa .btn{flex:none}
 
 /* ============ Anotações ============ */
@@ -499,22 +500,51 @@ const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const uid = () => "x"+Math.abs(Date.now()+Math.floor(performance.now()*1000)).toString(36);
 
 /* --------------------------- Rede --------------------------- */
-/* Porta única de saída: todo acesso ao banco passa por aqui, então os headers
-   de autenticação ficam num lugar só. */
-async function sbFetch(path, opts={}){
-  const r = await fetch(`${SB.url}/rest/v1/${path}`, {
-    ...opts,
-    headers:{
-      "apikey": SB.key,
-      /* O crachá: deslogado vai a chave anônima (enxerga só o modelo);
-         logado vai o JWT da sessão, e o auth.uid() das policies passa a
-         valer. Uma linha aqui muda o comportamento de todas as chamadas. */
-      "Authorization": `Bearer ${(sessao && sessao.access_token) || SB.key}`,
-      "Content-Type": "application/json",
-      ...(opts.headers||{})
-    }
+/* Ids gerados aqui, e não pelo banco. Parece detalhe, mas é o que torna
+   possível criar coisas sem rede: a linha já nasce com identidade, entra na
+   fila, e sobe depois exatamente igual. Sem isto, criar offline exigiria
+   esperar o uuid do servidor — ou seja, não daria. */
+function novoId(){
+  try{ return crypto.randomUUID(); }catch(e){}
+  /* Navegador antigo ou origem insegura: uuid v4 na mão. */
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c=>{
+    const r = Math.random()*16|0;
+    return (c==="x" ? r : (r&0x3|0x8)).toString(16);
   });
-  if(!r.ok) throw new Error(`${r.status} — ${await r.text()}`);
+}
+
+function cabecalhosSb(extra){
+  return {
+    "apikey": SB.key,
+    /* O crachá: deslogado vai a chave anônima (enxerga só o modelo);
+       logado vai o JWT da sessão, e o auth.uid() das policies passa a
+       valer. Uma linha aqui muda o comportamento de todas as chamadas. */
+    "Authorization": `Bearer ${(sessao && sessao.access_token) || SB.key}`,
+    "Content-Type": "application/json",
+    ...(extra||{})
+  };
+}
+
+/* Porta única de saída: todo acesso ao banco passa por aqui, então os headers
+   de autenticação — e agora a fila de pendências — ficam num lugar só. */
+async function sbFetch(path, opts={}){
+  const metodo = (opts.method || "GET").toUpperCase();
+  let r;
+  try{
+    r = await fetch(`${SB.url}/rest/v1/${path}`, { ...opts, headers: cabecalhosSb(opts.headers) });
+  }catch(e){
+    /* fetch só rejeita quando a requisição NÃO CHEGOU (sem rede, DNS, avião).
+       Resposta de erro do servidor não passa por aqui — vem no r.ok abaixo.
+       A diferença é o que decide o que entra na fila: repetir um 403 mil
+       vezes não conserta nada, repetir um POST perdido conserta tudo. */
+    if(metodo !== "GET"){ enfileirar(path, opts, metodo); return null; }
+    throw e;
+  }
+  if(!r.ok){
+    const err = new Error(`${r.status} — ${await r.text()}`);
+    err.status = r.status;    // marca "veio do servidor", usado pelas sondagens
+    throw err;
+  }
   /* Nem toda resposta de sucesso traz JSON: DELETE devolve 204 sem corpo, e
      um POST com "Prefer: return=minimal" devolve 201 também sem corpo. Testar
      o corpo é mais confiável do que tentar adivinhar pelo código de status. */
@@ -522,11 +552,63 @@ async function sbFetch(path, opts={}){
   return corpo ? JSON.parse(corpo) : null;
 }
 
+/* -------------------- Fila de alterações -------------------- */
+/* O que não chegou ao servidor fica aqui até chegar. É isto que faz uma
+   alteração feita no metrô não virar pó. */
+const FILA_KEY = "estudos-ia-fila-v1";
+let fila = (()=>{ try{ const a=JSON.parse(localStorage.getItem(FILA_KEY)||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } })();
+let enviandoFila = false;
+
+function salvarFila(){ try{ localStorage.setItem(FILA_KEY, JSON.stringify(fila)); }catch(e){} }
+function pendentes(){ return fila.length; }
+
+function enfileirar(path, opts, metodo){
+  /* Só o Prefer é guardado: o crachá é remontado na hora de enviar, senão
+     uma alteração de ontem subiria com um token já vencido. */
+  fila.push({
+    path, metodo,
+    body: opts.body || null,
+    prefer: (opts.headers && opts.headers.Prefer) || null,
+    quando: new Date().toISOString()
+  });
+  salvarFila();
+}
+
+async function enviarFila(){
+  if(enviandoFila || !fila.length || !sbLigado()) return false;
+  enviandoFila = true;
+  let enviadas = 0, recusadas = 0;
+  try{
+    while(fila.length){
+      const t = fila[0];
+      let r;
+      try{
+        r = await fetch(`${SB.url}/rest/v1/${t.path}`, {
+          method: t.metodo,
+          body: t.body || undefined,
+          headers: cabecalhosSb(t.prefer ? { "Prefer": t.prefer } : null)
+        });
+      }catch(e){ return enviadas>0; }        // ainda sem rede: fica para a próxima
+      if(!r.ok && r.status >= 500) return enviadas>0;   // servidor com soluço: idem
+      if(!r.ok){
+        /* 4xx é recusa definitiva (a linha já não existe, o texto é inválido).
+           Insistir travaria a fila para sempre e nada mais subiria. */
+        console.error("Fila: alteração recusada", t.metodo, t.path, r.status);
+        recusadas++;
+      } else enviadas++;
+      fila.shift(); salvarFila();
+    }
+  } finally { enviandoFila = false; }
+  if(recusadas) alert(`${recusadas} alteração${recusadas===1?"":"ões"} feita${recusadas===1?"":"s"} sem conexão não foi aceita pelo servidor e foi descartada.`);
+  return enviadas>0 || recusadas>0;
+}
+
 /* Envia uma escrita ao servidor. Se falhar, avisa e recarrega do banco para a
-   tela não ficar mostrando uma mentira otimista. */
+   tela não ficar mostrando uma mentira otimista. Sem rede não é falha: o
+   sbFetch já guardou na fila e devolveu como se tivesse dado certo. */
 async function salvarNoServidor(op){
-  if(offline){ persist(); return true; }
-  try{ await op(); return true; }
+  if(offline){ persist(); guardarRetrato(); return true; }
+  try{ await op(); guardarRetrato(); return true; }
   catch(e){
     console.error(e);
     alert("Não consegui salvar no servidor.\n\n"+e.message);
@@ -540,18 +622,32 @@ async function salvarNoServidor(op){
 /* Descobre, uma vez por sessão, o que o supabase-evolucao.sql já criou.
    Duas requisições minúsculas no pior caso, uma no caso normal — e em
    troca nenhuma tela precisa adivinhar se a coluna existe. */
+/* Devolve true/false quando o SERVIDOR responde, e null quando a requisição
+   não chegou. É essa diferença que impede o app de anotar "esta coluna não
+   existe" só porque o celular estava sem rede — o que desligava materiais,
+   notas e novidades até recarregar a página. */
+async function sondar(path){
+  try{ await sbFetch(path); return true; }
+  catch(e){ return e.status ? false : null; }
+}
+
 async function detectarColunas(){
   if(colunasDetectadas) return;
-  colunasDetectadas = true;
   /* A tabela de materiais é de outra migração: sondada à parte, para o
      app funcionar com uma rodada e não com a outra. */
-  try{ await sbFetch("materiais?select=id&limit=1"); temMateriais = true; }catch(e){ temMateriais = false; }
-  try{
-    await sbFetch("itens?select=nota,origem_id&limit=1");
-    temNota = temOrigem = true; return;              // seções 5 e 6 rodaram
-  }catch(e){}
-  try{ await sbFetch("itens?select=nota&limit=1");      temNota   = true; }catch(e){ temNota   = false; }
-  try{ await sbFetch("itens?select=origem_id&limit=1"); temOrigem = true; }catch(e){ temOrigem = false; }
+  const mat  = await sondar("materiais?select=id&limit=1");
+  const ambas = await sondar("itens?select=nota,origem_id&limit=1");
+  let nota = ambas, origem = ambas;
+  if(ambas === false){
+    nota   = await sondar("itens?select=nota&limit=1");
+    origem = await sondar("itens?select=origem_id&limit=1");
+  }
+  temMateriais = mat === true;
+  temNota      = nota === true;
+  temOrigem    = origem === true;
+  /* Só considera o assunto resolvido se ao menos uma sondagem falou com o
+     servidor. Tudo null = sem rede: tentar de novo na próxima carga. */
+  colunasDetectadas = [mat, nota, origem].some(v => v !== null);
 }
 
 /* A tabela admins pode não existir ainda; nesse caso ninguém é admin e o
@@ -872,12 +968,13 @@ async function adicionarNovidades(temasSel, itensSel, matsSel){
 
   for(const mt of temasSel){
     const slug = slugUnico(mt.nome, null, usados);
-    const [row] = await sbFetch("temas", {
-      method:"POST", headers:{ "Prefer":"return=representation" },
-      body: JSON.stringify({ slug, nome:mt.nome, emoji:mt.emoji, resumo:mt.resumo||"", ordem: ++ordem, origem_id: mt.id })
+    const temaId = novoId();
+    await sbFetch("temas", {
+      method:"POST", headers:{ "Prefer":"return=minimal" },
+      body: JSON.stringify({ id: temaId, slug, nome:mt.nome, emoji:mt.emoji, resumo:mt.resumo||"", ordem: ++ordem, origem_id: mt.id })
     });
     const filhos = (mt.itens||[]).sort((a,b)=>a.ordem-b.ordem).map((i,k)=>({
-      tema_id: row.id, texto:i.texto, detalhe:i.detalhe||"", ordem:k+1, origem_id:i.id
+      tema_id: temaId, texto:i.texto, detalhe:i.detalhe||"", ordem:k+1, origem_id:i.id
     }));
     if(filhos.length) await sbFetch("itens", {method:"POST", body: JSON.stringify(filhos)});
 
@@ -885,7 +982,7 @@ async function adicionarNovidades(temasSel, itensSel, matsSel){
        listados um a um quando o tema inteiro é novidade. */
     if(temMateriais){
       const mats = (mt.materiais||[]).sort((a,b)=>a.ordem-b.ordem).map((m,k)=>({
-        tema_id: row.id, titulo:m.titulo, url:m.url||"", tipo:m.tipo||"outro",
+        tema_id: temaId, titulo:m.titulo, url:m.url||"", tipo:m.tipo||"outro",
         nota:m.nota||"", ordem:k+1, origem_id:m.id
       }));
       if(mats.length) await sbFetch("materiais", {method:"POST", body: JSON.stringify(mats)});
@@ -932,39 +1029,113 @@ async function dispensarNovidades(ids){
   });
 }
 
+/* --------------------- Retrato local --------------------- */
+/* Sem isto, abrir o app sem rede mostrava a SEED — a trilha embutida no
+   arquivo, que não é a sua. Isso é pior que uma tela de erro: parece que
+   os seus dados sumiram. O retrato guarda a última versão que veio do
+   banco, chaveada por usuário (senão a trilha de uma conta apareceria na
+   outra ao trocar de login). */
+const RETRATO_KEY = "estudos-ia-retrato-v1";
+function chaveRetrato(){ return `${RETRATO_KEY}:${(sessao && sessao.user && sessao.user.id) || "visitante"}`; }
+
+function guardarRetrato(st){
+  const alvo = st || state;
+  if(!alvo || modoModelo) return;   // o modo modelo não é a trilha de ninguém
+  try{
+    localStorage.setItem(chaveRetrato(), JSON.stringify({
+      quando: new Date().toISOString(),
+      abas: alvo.abas,
+      progresso: [...progresso],
+      progressoEm: [...progressoEm]
+    }));
+  }catch(e){}   // cota estourada: seguir sem retrato é melhor que quebrar
+}
+
+function lerRetrato(){
+  try{
+    const d = JSON.parse(localStorage.getItem(chaveRetrato())||"null");
+    return (d && Array.isArray(d.abas)) ? d : null;
+  }catch(e){ return null; }
+}
+
 /* ---------------------------- Carga ---------------------------- */
+const esperar = ms => new Promise(r=>setTimeout(r, ms));
+let retratoDe = "";   // data do retrato que está na tela, para a faixa contar a verdade
+
 async function load(){
   if(sbLigado()){
-    try{
-      await detectarColunas();
-      await verificarAdmin();
-      if(!souAdmin) modoModelo = false;   // perdeu o crachá (ou trocou de conta): sai do modo
-      const st = await carregarTrilha();
-      offline = false;
-      if(logado() && !modoModelo){
-        await carregarProgresso();
-        await migrarProgressoParaConta(st);
-        await carregarNovidades(st);
-      } else if(logado()){
-        /* Modo modelo: o progresso é de itens da SUA cópia, e aqui na tela
-           estão os itens do modelo — ids diferentes. Não carregar nada é o
-           certo: melhor nenhum ✓ do que ✓ no item errado. */
-        progresso = new Set(); progressoEm = new Map(); novidades = null;
-      } else {
-        progresso = lerProgressoLocal();   // sair de uma conta não deixa o ✓ dela na tela
-        progressoEm = new Map();           // nem as datas dela
-        migrarProgressoAntigo(st);
+    /* Abrir o app instalado é justamente o instante em que o rádio do
+       celular ainda está acordando: a primeira requisição falha por meio
+       segundo de diferença. Desistir na primeira tentativa jogava o app
+       inteiro em modo local pelo resto da sessão — era esta a causa de
+       "perdeu a conexão com o banco". */
+    for(let tentativa = 1; tentativa <= 3; tentativa++){
+      try{
+        await detectarColunas();
+        await verificarAdmin();
+        if(!souAdmin) modoModelo = false;   // perdeu o crachá (ou trocou de conta): sai do modo
+        const st = await carregarTrilha();
+        offline = false; retratoDe = "";
+        if(logado() && !modoModelo){
+          await carregarProgresso();
+          await migrarProgressoParaConta(st);
+          await carregarNovidades(st);
+        } else if(logado()){
+          /* Modo modelo: o progresso é de itens da SUA cópia, e aqui na tela
+             estão os itens do modelo — ids diferentes. Não carregar nada é o
+             certo: melhor nenhum ✓ do que ✓ no item errado. */
+          progresso = new Set(); progressoEm = new Map(); novidades = null;
+        } else {
+          progresso = lerProgressoLocal();   // sair de uma conta não deixa o ✓ dela na tela
+          progressoEm = new Map();           // nem as datas dela
+          migrarProgressoAntigo(st);
+        }
+        const pronto = aplicarProgresso(st);
+        guardarRetrato(pronto);
+        return pronto;
+      }catch(e){
+        console.error(`Supabase indisponível (tentativa ${tentativa}/3):`, e);
+        if(tentativa < 3) await esperar(500 * tentativa);
       }
-      return aplicarProgresso(st);
-    }catch(e){ console.error("Supabase indisponível:", e); }
+    }
   }
+
   offline = true;   // sem chave, sem rede, ou banco fora do ar
+
+  /* Ordem de preferência do que mostrar: o seu retrato > o backup antigo >
+     a semente. A semente é o último recurso porque é a única que NÃO é sua. */
+  const rt = lerRetrato();
+  if(rt){
+    progresso   = new Set(rt.progresso || []);
+    progressoEm = new Map(rt.progressoEm || []);
+    retratoDe   = rt.quando || "";
+    return aplicarProgresso({ meta: clone(SEED.meta), abas: rt.abas });
+  }
+  retratoDe = "";
   try{
     const d = JSON.parse(localStorage.getItem(STORE_KEY)||"null");
     if(d && Array.isArray(d.abas)) return aplicarProgresso(d);
   }catch(e){}
   return aplicarProgresso(clone(SEED));
 }
+
+/* Volta a rede? Sobe a fila e recarrega. Antes disto, o app ficava em modo
+   local até alguém fechar e abrir de novo. */
+let ultimaTentativa = 0;
+async function tentarReconectar(){
+  if(!sbLigado()) return;
+  /* Sem freio, cada troca de aba dispararia três requisições e dois
+     segundos de espera enquanto o celular estiver mesmo sem rede. */
+  const agora = Date.now();
+  if(agora - ultimaTentativa < 5000) return;
+  ultimaTentativa = agora;
+
+  const havia = pendentes();
+  const subiu = await enviarFila();
+  if(offline || subiu || havia) await recarregar();
+}
+window.addEventListener("online", tentarReconectar);
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) tentarReconectar(); });
 
 async function recarregar(){ state = await load(); editingId = editingAba = editingNota = editingMat = null; render(); }
 
@@ -999,9 +1170,11 @@ async function substituirTrilha(d){
   for(const a of d.abas){
     ordem++;
     const slug = slugUnico(a.id || a.nome, null, usados);
-    const [row] = await sbFetch("temas", {
-      method:"POST", headers:{ "Prefer":"return=representation" },
+    const temaId = novoId();
+    await sbFetch("temas", {
+      method:"POST", headers:{ "Prefer":"return=minimal" },
       body: JSON.stringify({
+        id: temaId,
         slug,
         nome:  (a.nome||"Sem nome").slice(0,60),
         emoji: (a.emoji||"📘").slice(0,8),
@@ -1010,7 +1183,7 @@ async function substituirTrilha(d){
       })
     });
     const itens = (a.itens||[]).map((it,k)=>({
-      tema_id: row.id,
+      tema_id: temaId,
       texto:  (it.texto||"(sem título)").slice(0,200),
       detalhe:(it.detalhe||"").slice(0,300),
       ordem: k+1
@@ -1022,7 +1195,7 @@ async function substituirTrilha(d){
        de perda, porque a tela fica plausível. */
     if(temMateriais){
       const mats = (a.materiais||[]).map((m,k)=>({
-        tema_id: row.id,
+        tema_id: temaId,
         titulo: (m.titulo||"(sem título)").slice(0,120),
         url:    (m.url||"").slice(0,500),
         tipo:   TIPOS_MAT[m.tipo] ? m.tipo : "outro",
@@ -1737,11 +1910,33 @@ function viewMural(){
   </div>`;
 }
 
-function avisoOffline(){
-  if(!offline) return "";
-  const motivo = sbLigado() ? "o banco não respondeu" : "a anon key ainda não foi preenchida no topo do arquivo";
-  return `<div class="wrap" style="padding-top:0">
-    <p class="foot">⚠ <b>Modo local</b> — ${motivo}. Suas mudanças ficam só neste navegador.</p></div>`;
+/* Faixa de rede — no TOPO, não no rodapé. No celular ninguém rola até o fim
+   para descobrir por que o app está estranho. E ela diz a verdade inteira:
+   de quando é o que está na tela, e quantas alterações ainda vão subir. */
+function faixaRede(){
+  const p = pendentes();
+  if(!offline && !p) return "";
+
+  if(!sbLigado()){
+    return `<div class="faixa rede"><span>⚠ <b>Sem banco configurado</b> — a anon key não foi preenchida no topo do arquivo.</span></div>`;
+  }
+
+  const naFila = p ? ` <b>${p}</b> alteraç${p===1?"ão espera":"ões esperam"} envio.` : "";
+
+  if(offline){
+    const dt = retratoDe ? quando(retratoDe) : "";
+    return `<div class="faixa rede">
+      <span>📴 <b>Sem conexão com o banco.</b> ${dt
+        ? `Você está vendo a sua trilha como estava em <b>${dt}</b>.`
+        : `Você está vendo o conteúdo local.`} O que mudar agora sobe sozinho quando a rede voltar.${naFila}</span>
+      <button class="btn" data-action="reconectar">↻ Tentar agora</button>
+    </div>`;
+  }
+
+  return `<div class="faixa rede">
+    <span>↻${naFila}</span>
+    <button class="btn" data-action="reconectar">Enviar agora</button>
+  </div>`;
 }
 
 function render(){
@@ -1759,7 +1954,7 @@ function render(){
   else if(r==="novidades") html = viewNovidades();
   else if(r==="materiais") html = viewMateriais();
   else { const idx = state.abas.findIndex(a=>a.id===r); if(idx<0){ location.hash=""; return; } html = viewStage(idx); }
-  $("#app").innerHTML = faixaModelo() + faixaNovidades() + html + avisoOffline();
+  $("#app").innerHTML = faixaRede() + faixaModelo() + faixaNovidades() + html;
 }
 
 /* ============================ Ações ============================ */
@@ -1777,6 +1972,13 @@ document.addEventListener("click", async e=>{
   const matId = act.closest("[data-mat]")?.dataset.mat;
 
   switch(action){
+    case "reconectar":
+      ultimaTentativa = 0;   // pedido explícito ignora o freio dos 5s
+      carregando = true; render();
+      await tentarReconectar();
+      carregando = false; render();
+      break;
+
     case "voltar": if(history.length>1){ history.back(); } else { go("home"); } break;
     case "theme": toggleTheme(); break;
     case "entrar": await entrar(); break;
@@ -2007,15 +2209,16 @@ document.addEventListener("submit", async e=>{
     delete f.mat.novo;
     editingMat = null; render();
 
+    const novoMat = eraNovo ? novoId() : null;
+    if(eraNovo){ f.mat.id = novoMat; render(); }
+
     await salvarNoServidor(async ()=>{
       if(eraNovo){
-        const [row] = await sbFetch("materiais", {
-          method:"POST", headers:{ "Prefer":"return=representation" },
-          body: JSON.stringify({ tema_id:f.aba.dbId, titulo, url, tipo, nota, ordem:f.mat.ordem,
+        await sbFetch("materiais", {
+          method:"POST", headers:{ "Prefer":"return=minimal" },
+          body: JSON.stringify({ id:novoMat, tema_id:f.aba.dbId, titulo, url, tipo, nota, ordem:f.mat.ordem,
                                  ...(modoModelo?{user_id:null}:{}) })
         });
-        f.mat.id = row.id;   // troca o id temporário pelo uuid do banco
-        render();
       } else {
         await sbFetch(`materiais?id=eq.${f.mat.id}`, {
           method:"PATCH", body: JSON.stringify({ titulo, url, tipo, nota })
@@ -2060,15 +2263,18 @@ document.addEventListener("submit", async e=>{
       const slug = slugUnico(nome, aba.id);
       delete aba.novo; aba.id = slug;
       go(slug);
+      /* O id nasce aqui, não no banco: assim o tema já tem identidade antes
+         de a requisição sair, e criar sem rede continua funcionando. */
+      const novo = novoId();
+      aba.dbId = novo;
       await salvarNoServidor(async ()=>{
-        const [row] = await sbFetch("temas", {
-          method:"POST", headers:{ "Prefer":"return=representation" },
+        await sbFetch("temas", {
+          method:"POST", headers:{ "Prefer":"return=minimal" },
           /* user_id: null explícito no modo modelo. A coluna tem
              "default auth.uid()", então omitir carimbaria o admin como
              dono e a linha viraria a cópia dele em vez do modelo. */
-          body: JSON.stringify({ slug, nome, emoji, resumo, ordem: aba.ordem, ...(modoModelo?{user_id:null}:{}) })
+          body: JSON.stringify({ id: novo, slug, nome, emoji, resumo, ordem: aba.ordem, ...(modoModelo?{user_id:null}:{}) })
         });
-        aba.dbId = row.id;
       });
     } else {
       render();
@@ -2090,11 +2296,15 @@ document.addEventListener("submit", async e=>{
     if(!texto) return;
     fm.texto.value = "";
     try{
-      const [row] = await sbFetch("mensagens", {
-        method:"POST", headers:{ "Prefer":"return=representation" },
-        body: JSON.stringify({ autor, texto, user_id: sessao.user.id })
+      const id = novoId();
+      const criada_em = new Date().toISOString();
+      await sbFetch("mensagens", {
+        method:"POST", headers:{ "Prefer":"return=minimal" },
+        body: JSON.stringify({ id, autor, texto, user_id: sessao.user.id, criada_em })
       });
-      mensagens.unshift(row);
+      /* A linha é montada aqui em vez de vir do servidor: assim o recado
+         aparece na hora mesmo quando ele foi só para a fila. */
+      mensagens.unshift({ id, autor, texto, criada_em });
       render();
     }catch(err){
       console.error(err);
@@ -2117,15 +2327,18 @@ document.addEventListener("submit", async e=>{
   f.it.texto = texto; f.it.detalhe = detalhe; delete f.it.novo;
   editingId = null; render();
 
+  /* Mesmo motivo do tema: o uuid é do cliente, então o item existe de
+     verdade mesmo que a requisição só suba amanhã. */
+  const novoIt = eraNovo ? novoId() : null;
+  if(eraNovo){ f.it.id = novoIt; render(); }
+
   await salvarNoServidor(async ()=>{
     if(eraNovo){
-      const [row] = await sbFetch("itens", {
+      await sbFetch("itens", {
         method:"POST",
-        headers:{ "Prefer":"return=representation" },
-        body: JSON.stringify({ tema_id:f.aba.dbId, texto, detalhe, ordem:f.it.ordem, ...(modoModelo?{user_id:null}:{}) })
+        headers:{ "Prefer":"return=minimal" },
+        body: JSON.stringify({ id:novoIt, tema_id:f.aba.dbId, texto, detalhe, ordem:f.it.ordem, ...(modoModelo?{user_id:null}:{}) })
       });
-      f.it.id = row.id;   // troca o id temporário pelo uuid que o banco gerou
-      render();
     } else {
       await sbFetch(`itens?id=eq.${f.it.id}`, {
         method:"PATCH", body: JSON.stringify({ texto, detalhe })

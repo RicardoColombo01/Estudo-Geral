@@ -308,13 +308,55 @@ function cabecalhosGemini() {
    mostraria só "502" e não "modelo inexistente" ou "cota estourada". */
 async function erroGemini(r: Response): Promise<Error> {
   let msg = `${r.status}`;
+  let espera: number | null = null;
   try {
     const j = JSON.parse(await r.text());
     if (j?.error?.message) msg = j.error.message;
+    /* O tempo de espera vem em error.details[], como RetryInfo: "30.4s".
+       Ler daqui é a diferença entre "tente de novo em 31 segundos" e um
+       palpite — e o palpite errado é o que faz o usuário insistir. */
+    for (const d of (j?.error?.details ?? [])) {
+      const s = String(d?.retryDelay ?? "");
+      const n = parseFloat(s);
+      if (s && !isNaN(n)) espera = Math.ceil(n);
+    }
   } catch { /* corpo não era JSON; fica o status */ }
   const e = new Error(msg);
   (e as any).status = r.status;
+  (e as any).espera = espera;
   return e;
+}
+
+/* O texto cru do Google é em inglês, cheio de URL, e nomeia "plan and
+   billing" para um problema que aqui é de janela de tempo. Traduzir os
+   casos conhecidos é o que transforma um erro assustador em instrução. */
+function mensagemDeErro(e: any): string {
+  const st = e?.status;
+  const msg = String(e?.message || "");
+  if (st === 429) {
+    const seg = e?.espera;
+    const quando = seg ? `Tente de novo em ${seg} segundo${seg > 1 ? "s" : ""}.` : "Espere um minuto e tente de novo.";
+    return "Limite gratuito do Gemini atingido. Ele é por minuto e vale para " +
+           `todo mundo que usa o app ao mesmo tempo. ${quando}`;
+  }
+  if (st === 404 || /not found|not supported/i.test(msg)) {
+    return `O modelo "${MODELO}" não está disponível para esta chave. ` +
+           "Troque com: supabase secrets set GEMINI_MODELO=<outro>";
+  }
+  if (st === 401 || st === 403 || /API[_ ]?key/i.test(msg)) {
+    return "A chave do Gemini foi recusada. Confira o secret GEMINI_API_KEY.";
+  }
+  if (st === 503 || /overloaded|UNAVAILABLE/i.test(msg)) {
+    return "O modelo está sobrecarregado agora. Tente de novo em alguns segundos.";
+  }
+  return "A IA não respondeu: " + msg;
+}
+
+/* Requisição recusada na porta (cota, chave, modelo inexistente) não chegou
+   ao modelo e não consumiu nada — contá-la inflaria o extrato e faria o
+   nosso freio barrar o usuário por uso que não houve. */
+function consumiuCota(st?: number): boolean {
+  return st !== 429 && st !== 401 && st !== 403 && st !== 404;
 }
 
 /* O raciocínio do modelo chega como parte irmã do texto, marcada com
@@ -482,18 +524,23 @@ Deno.serve(async (req) => {
          modelo: no Gemini 3 o formato estruturado convive com a busca,
          nas gerações 2.x não. Se der 400, repete sem o esquema e pede o
          JSON no próprio texto — o leitor tolerante abaixo dá conta. */
-      const msg = (e as Error).message || "";
+      const st = (e as any)?.status;
       /* 429 com a busca ligada tem uma causa só, e a mensagem do Google
          não conta qual: a camada gratuita não inclui grounding. Sem esta
          dica, o sintoma parece "estourei meu limite de uso". */
-      if ((e as any)?.status === 429 && pedido.buscarNaWeb) {
+      if (st === 429 && pedido.buscarNaWeb) {
         return json(502, {
           erro: "A busca na web não está incluída no plano gratuito do Gemini. " +
                 "Desligue com: supabase secrets set GEMINI_BUSCA=0",
         }, origem);
       }
-      if ((e as any)?.status !== 400) {
-        return json(502, { erro: "A IA não respondeu: " + msg }, origem);
+      if (st !== 400) {
+        /* Contar a TENTATIVA e não só o acerto. registrar_uso_ia() soma 1
+           em `chamadas`, então ela é chamada UMA vez por requisição — aqui
+           ou no fim, nunca nas duas. Antes só os sucessos entravam no
+           extrato, e por isso o freio nunca via a cota já queimada. */
+        if (consumiuCota(st)) await registrar({ entrada: 0, saida: 0 });
+        return json(502, { erro: mensagemDeErro(e) }, origem);
       }
       try {
         delete pedido.esquema;
@@ -501,7 +548,8 @@ Deno.serve(async (req) => {
           "no formato: " + JSON.stringify(ESQUEMAS[acao]);
         resposta = await gerar(corpoGemini(pedido));
       } catch (e2) {
-        return json(502, { erro: "A IA não respondeu: " + (e2 as Error).message }, origem);
+        if (consumiuCota((e2 as any)?.status)) await registrar({ entrada: 0, saida: 0 });
+        return json(502, { erro: mensagemDeErro(e2) }, origem);
       }
     }
     await registrar(usoDe(resposta));
@@ -549,7 +597,8 @@ Deno.serve(async (req) => {
     if (inicio.done) return json(502, { erro: "A IA não respondeu nada." }, origem);
     primeiro = inicio.value;
   } catch (e) {
-    return json(502, { erro: "A IA não respondeu: " + (e as Error).message }, origem);
+    if (consumiuCota((e as any)?.status)) await registrar({ entrada: 0, saida: 0 });
+    return json(502, { erro: mensagemDeErro(e) }, origem);
   }
 
   /* Recusa aqui sai em TEXTO, não em JSON: quem chama é o iaStream(), que

@@ -637,6 +637,19 @@ async function sbFetch(path, opts={}){
    guardado para amanhã não faz sentido — a pergunta era de hoje. */
 let temIA = false, iaUsadas = 0, iaLimite = 0;
 
+/* Trava de rajada. O limite que o Gemini aplica de verdade é POR MINUTO e
+   é da CHAVE, somando todo mundo que usa o app — o Ricardo bateu nele em
+   2026-07-29 ("limit: 20 ... retry in 30s"). Contador diário não impede
+   rajada num minuto, então a trava tem que ser aqui.
+
+   E o motivo de ela morar no chamarIA() e não em cada botão: o chat já se
+   protegia com o chatPensando, mas o ✨ de explicar não — clicar três
+   vezes disparava três requisições concorrentes. Uma trava por botão
+   deixaria sempre um de fora; a porta única não deixa. */
+const IA_ESPACO_MS = 4000;
+let iaOcupada = false, iaProximaEm = 0;
+function liberarIA(){ iaOcupada = false; iaProximaEm = Date.now() + IA_ESPACO_MS; }
+
 async function chamarIA(corpo, comoTexto){
   if(!logado()) throw new Error("Entre com a sua conta para usar a IA.");
   /* Sem o cabeçalho "apikey" de propósito: a Edge Function autentica pelo
@@ -644,20 +657,40 @@ async function chamarIA(corpo, comoTexto){
      autorizado no preflight — foi exatamente o que quebrou na primeira
      tentativa, e o sintoma é o app parecer morto sem erro nenhum no
      servidor, porque o pedido nem chega a sair. */
-  const r = await fetch(`${SB.url}/functions/v1/ia`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${sessao.access_token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(corpo)
-  });
-  if(!r.ok){
-    let msg = `${r.status}`;
-    try{ const j = await r.json(); if(j && j.erro) msg = j.erro; }catch(e){}
-    const err = new Error(msg); err.status = r.status; throw err;
+  /* O "ping" fica fora da trava: ele não chega ao Gemini, não gasta cota e
+     roda em toda carga — travá-lo atrasaria a abertura do app por nada. */
+  const ehPing = corpo && corpo.acao === "ping";
+  if(!ehPing){
+    if(iaOcupada) throw new Error("A IA ainda está respondendo. Espere ela terminar.");
+    const falta = Math.ceil((iaProximaEm - Date.now())/1000);
+    if(falta > 0) throw new Error(`Espere ${falta} segundo${falta>1?"s":""} antes de pedir outra coisa à IA.`);
+    iaOcupada = true;
   }
-  return comoTexto ? r : r.json();
+  try{
+    const r = await fetch(`${SB.url}/functions/v1/ia`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${sessao.access_token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(corpo)
+    });
+    if(!r.ok){
+      let msg = `${r.status}`;
+      try{ const j = await r.json(); if(j && j.erro) msg = j.erro; }catch(e){}
+      const err = new Error(msg); err.status = r.status; throw err;
+    }
+    /* Resposta em streaming: o servidor ainda está gerando enquanto o
+       corpo é lido, então quem libera a trava é o iaStream() no fim da
+       leitura — soltar aqui deixaria um segundo pedido sair no meio. */
+    if(comoTexto) return r;
+    const j = await r.json();
+    if(!ehPing) liberarIA();
+    return j;
+  }catch(e){
+    if(!ehPing) liberarIA();
+    throw e;
+  }
 }
 
 /* Descobre se a IA está disponível sem gastar um token sequer. Mesmo
@@ -676,18 +709,22 @@ async function detectarIA(){
 /* O texto chega escrevendo, como uma conversa. Texto puro em vez de SSE:
    o cliente só concatena os pedaços, sem parser de eventos. */
 async function iaStream(corpo, aoReceber){
+  /* Se o chamarIA() falhar, ele já liberou a trava por conta própria — daí
+     o try começar depois dele, e não em volta dele. */
   const r = await chamarIA(corpo, true);
-  const leitor = r.body.getReader();
-  const dec = new TextDecoder();
-  let tudo = "";
-  while(true){
-    const { done, value } = await leitor.read();
-    if(done) break;
-    tudo += dec.decode(value, { stream: true });
-    aoReceber(tudo);
-  }
-  iaUsadas++;
-  return tudo;
+  try{
+    const leitor = r.body.getReader();
+    const dec = new TextDecoder();
+    let tudo = "";
+    while(true){
+      const { done, value } = await leitor.read();
+      if(done) break;
+      tudo += dec.decode(value, { stream: true });
+      aoReceber(tudo);
+    }
+    iaUsadas++;
+    return tudo;
+  } finally { liberarIA(); }
 }
 
 /* -------------------- Fila de alterações -------------------- */

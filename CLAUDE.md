@@ -202,6 +202,28 @@ coisas offline.
   do navegador escondida, então o elemento se estende por baixo da barra e a parte de baixo
   some. `dvh` acompanha a barra. `.chat-painel` declara `vh` e `dvh` em sequência de
   propósito — a primeira é reserva para navegador que não conhece a segunda.
+- **O limite que o Gemini aplica de verdade é POR MINUTO, e é da chave.** Medido em
+  2026-07-29: `generate_content_free_tier_requests, limit: 20, model: gemini-3.6-flash`,
+  com `Please retry in 30.47s` — e voltou a funcionar em um minuto, o que **prova** a janela
+  curta (cota diária não se libera em 30s). Consequências: (1) o `LIMITE_DIA` **não protege
+  nada** contra rajada, porque conta dia e o teto é minuto; (2) ele conta **por conta**
+  enquanto o Google conta **por chave**, somando todos os usuários. Antes de mexer no número,
+  lembrar que ele resolve outro problema.
+- **`registrar_uso_ia()` soma 1 em `chamadas` sempre.** Então ela é chamada **uma única vez
+  por requisição** — no sucesso ou no fracasso, nunca nas duas. Antes ela só rodava no
+  sucesso, e por isso o extrato e o `ping` mostravam número otimista: a cota queimada por
+  tentativa falha era invisível. Recusa na porta (429/401/403/404) **não** conta, porque não
+  chegou ao modelo — `consumiuCota()` decide isso.
+- **A trava de rajada mora no `chamarIA()`, não nos botões.** O chat já se protegia com
+  `chatPensando`, mas o ✨ de explicar não: três cliques disparavam três requisições
+  concorrentes. Trava por botão sempre deixa um de fora — a porta única não deixa. O `ping`
+  fica de fora da trava de propósito: não chega ao Gemini e roda em toda carga. Em resposta
+  de streaming, quem libera é o `iaStream()` no fim da leitura, porque o servidor ainda está
+  gerando enquanto o corpo é lido.
+- **O tempo de espera do 429 vem em `error.details[]` como `retryDelay`.** Ler dali é a
+  diferença entre "tente de novo em 31 segundos" e um palpite. O texto cru do Google é em
+  inglês, com dois links, e fala de "plan and billing" para um problema que é de janela de
+  tempo — `mensagemDeErro()` existe para traduzir os casos conhecidos.
 - **`meuNome()` pode devolver o e-mail, e ele vira assinatura pública.** A cascata é
   `full_name || name || u.email || "Você"`, e o resultado vai para `mensagens.autor`, cuja
   policy de leitura é `using (true)` — pública até para quem não está logado. O Google

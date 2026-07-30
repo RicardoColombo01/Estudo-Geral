@@ -204,7 +204,26 @@ escapar transforma o termo buscado em vetor de injeção — e o termo vem digit
 
 ---
 
-## Item 5 — Quadro de projeto
+## Item 5 — Quadro de projeto — ✅ FASE 2a ESCRITA 2026-07-30 · 2b pendente
+
+> **Estado:** `supabase-projetos.sql` e as telas `#projetos` / `#projeto/<id>` estão no
+> repositório. Falta o Ricardo rodar o SQL e testar. Sem ele, o card 📁 não aparece.
+>
+> **Três lacunas do desenho antigo foram resolvidas na escrita:**
+>
+> | Lacuna | Decisão | Por quê |
+> |---|---|---|
+> | `arquivado` (flag) vs `arquivado_em` | **`arquivado_em timestamptz`** | Mesma convenção do item 6b e da futura "Desfazer". Duas convenções para a mesma ideia no mesmo banco é o que se confunde depois |
+> | `tarefas` sem `user_id` | **Ganhou `user_id` próprio**, `not null default auth.uid()` | Policy por `exists` sobre `projetos` faz RLS rodar dentro de RLS — a recursão que criou o `eh_admin()`. E ler um quadro é ler N tarefas, escrever é uma linha: com coluna própria o custo do pai é pago só na escrita |
+> | `tarefa_comentarios` na 2a | **Ficou para a 2b** | Comentário em tarefa pessoal não serve para nada, e a 2b precisa de `.sql` próprio de qualquer jeito. Além disso `autor` viria de `meuNome()`, que ainda pode vazar o e-mail (item 9) |
+>
+> **`grupo_id` já existe na tabela**, nulo e sem FK — a 2b só acrescenta a chave estrangeira
+> e **uma policy permissiva a mais** de select. Nenhum `drop policy` nem `alter column` nas
+> duas tabelas de 2a: é a regra "todo SQL novo só adiciona" usada a favor.
+>
+> ⚠️ **Pré-requisito da 2b, não desta fase:** a segunda conta Google. O teste que existe hoje
+> usa um uuid inexistente e por isso **não distingue "o RLS filtrou" de "essa linha não
+> existe"**. Também é pré-requisito da 2b corrigir o item 9 antes de `tarefa_comentarios`.
 
 O desenho completo está em `planos/2026-07-28-ia-e-quadro-de-projeto.md`, Parte 2, e continua
 válido.
@@ -228,7 +247,24 @@ Resumo do que decide a forma:
 
 ---
 
-## Item 6 — Arquivo do que já foi estudado (arquivar em vez de excluir)
+## Item 6 — Arquivo do que já foi estudado (arquivar em vez de excluir) — ✅ ESCRITO 2026-07-30
+
+> **Estado:** 6a e 6b escritos e no repositório. Falta o Ricardo rodar o
+> `supabase-arquivo.sql` e testar. Enquanto não rodar, o `#historico` já funciona (só a
+> lista de concluídos) e o botão 🗄 não aparece — a degradação de sempre.
+>
+> **Uma decisão mudou em relação ao que está escrito abaixo:** o filtro do arquivado ficou
+> **no PostgREST**, dentro do `carregarTrilha()`, e não espalhado em cinco telas. O que não
+> entra no `state` não pode ser esquecido por `stats()`, `totals()`, `viewAfazer()`,
+> `viewResumo()` nem `todosMateriais()` — o aviso do "custo escondido" mais abaixo deixou de
+> valer, porque o custo foi eliminado em vez de distribuído. O preço é o `#historico` buscar
+> os arquivados por conta própria, numa requisição só.
+>
+> **Um risco novo apareceu por causa dessa escolha, e foi consertado junto:**
+> `carregarNovidades()` indexa `origem_id` a partir do `state`. Com o arquivado fora dele, a
+> origem sumiria do índice e **o modelo voltaria a oferecer a mesma linha como novidade** —
+> aceitar criaria uma cópia do que se acabou de arquivar. Duas consultas de `origem_id`
+> fecham o buraco.
 
 **Pedido dele, 2026-07-29:** *"a cada coisa concluída com sucesso, fique armazenado em alguma
 parte para poder ser consultada […] fazendo assim não precisar ficar excluindo o item"*.

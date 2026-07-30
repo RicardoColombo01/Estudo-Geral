@@ -233,6 +233,25 @@ button{font-family:inherit}
 .msg-como{flex:1; align-self:center; font-size:12px; color:var(--muted); text-align:left;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
+/* ============ Quadro de projeto ============ */
+/* Uma coluna por vez em qualquer largura, escolhida pelos chips; o "tudo"
+   empilha as três, e só a partir de 860px elas viram três colunas lado a lado.
+   Zero leitura de viewport no JS e um único caminho de renderização — que é
+   também o que mantém a promessa de nada de arrastar-soltar.
+
+   Nenhuma regra nova no @media (max-width:640px), e isso é resultado de
+   decisão: linha de projeto e de tarefa são .item com .item-body e
+   .item-actions, então herdam as duas regras que consertaram o esmagamento de
+   2026-07-29 — é por isso que "← a fazer" e "feito →", os botões mais largos
+   do app depois dos da IA, cabem no celular. */
+.quadro{display:grid; gap:12px}
+@media (min-width:860px){ .quadro.tudo{grid-template-columns:repeat(3,1fr); align-items:start} }
+.quadro .section-label{margin-top:0}
+.tar-mark{width:26px; text-align:center; font-size:15px; line-height:1.6; color:var(--muted)}
+.item.feita .item-text{text-decoration:line-through; color:var(--muted)}
+.chip.prazo.venceu{color:var(--gold); border-color:color-mix(in srgb,var(--gold) 45%, var(--line))}
+.col-vazia{list-style:none; color:var(--muted); font-size:12.5px; padding:10px 4px}
+
 /* ============ Gestão de temas ============ */
 .tema-actions{display:flex; gap:4px; margin-top:14px; flex-wrap:wrap}
 .mini[disabled]{opacity:.3; cursor:default}
@@ -546,6 +565,30 @@ const THEME_KEY = "estudos-ia-theme";
 let state, editingId = null, editingAba = null, editingNota = null, editingMat = null;
 let filtroMat = "todos";   // filtro por tipo na tela #materiais
 
+/* Tela #historico. Fica FORA do `state` de propósito: `state` é a trilha ativa,
+   e é ele que vira retrato, Exportar e Importar. O histórico é a pergunta
+   oposta ("o que já saiu da lista?"), carregada por rota e descartada ao sair —
+   mesmo padrão de `cartoes` e `mensagens`. */
+let historico = null;        // {feitos:[], itens:[], temas:[], parcial}
+let filtroHist = "feitos";   // chip: "feitos" | "arquivados"
+
+/* Quadro de projeto. Também fora do `state`, e pela mesma razão: `state` é a
+   trilha, e é ele que vira retrato, Exportar e Importar. Misturar projetos ali
+   obrigaria stats(), totals(), guardarRetrato() e substituirTrilha() a saberem
+   o que é uma tarefa — o "custo escondido" que o PLANO.md descreve. Aqui é o
+   padrão de `cartoes` e `mensagens`: lista própria, carregada por rota. */
+let temProjetos = false;
+let projetos = [], projetoAberto = null, tarefas = [];
+let editandoProj = null, editandoTarefa = null;
+let filtroProj = "ativos";    // chips da tela #projetos
+let colunaTar  = "a_fazer";   // chips do quadro
+const COLUNAS = {
+  a_fazer: { marca:"○", rotulo:"a fazer" },
+  fazendo: { marca:"◐", rotulo:"fazendo" },
+  feito:   { marca:"●", rotulo:"feito"   }
+};
+const ORDEM_COL = ["a_fazer","fazendo","feito"];
+
 /* Estado da IA. Tudo efêmero de propósito: proposta que não foi aceita
    não vira linha no banco, e explicação some quando você fecha. */
 let iaDetectada = false;
@@ -567,7 +610,7 @@ let novidades = null;
 /* O que este banco já tem. O supabase-evolucao.sql pode não ter rodado
    ainda — e o site publicado não pode quebrar por causa disso. Cada
    recurso novo consulta a flag correspondente e se desliga sozinho. */
-let temNota = false, temOrigem = false, temMateriais = false, colunasDetectadas = false;
+let temNota = false, temOrigem = false, temMateriais = false, temArquivo = false, colunasDetectadas = false;
 
 const clone = o => JSON.parse(JSON.stringify(o));
 const $ = s => document.querySelector(s);
@@ -817,12 +860,21 @@ async function detectarColunas(){
     nota   = await sondar("itens?select=nota&limit=1");
     origem = await sondar("itens?select=origem_id&limit=1");
   }
+  /* Arquivar precisa da coluna nas DUAS tabelas: o filtro do carregarTrilha()
+     usa itens.arquivado_em (dentro do embed) E temas.arquivado_em (no topo).
+     Com meia migração o filtro de cima responderia 400, o load() tentaria três
+     vezes e a trilha inteira cairia para o retrato — recurso pela metade aqui
+     não degrada, quebra. Por isso duas sondagens e uma flag só. */
+  const arqI = await sondar("itens?select=arquivado_em&limit=1");
+  const arqT = arqI === true ? await sondar("temas?select=arquivado_em&limit=1") : arqI;
+
   temMateriais = mat === true;
   temNota      = nota === true;
   temOrigem    = origem === true;
+  temArquivo   = (arqI === true && arqT === true);
   /* Só considera o assunto resolvido se ao menos uma sondagem falou com o
      servidor. Tudo null = sem rede: tentar de novo na próxima carga. */
-  colunasDetectadas = [mat, nota, origem].some(v => v !== null);
+  colunasDetectadas = [mat, nota, origem, arqI, arqT].some(v => v !== null);
 }
 
 /* A tabela admins pode não existir ainda; nesse caso ninguém é admin e o
@@ -834,6 +886,19 @@ async function verificarAdmin(){
     const r = await sbFetch("admins?select=user_id&limit=1");   // o RLS já filtra para mim
     souAdmin = Array.isArray(r) && r.length > 0;
   }catch(e){ souAdmin = false; }
+}
+
+/* Sondagem PRÓPRIA, e não dentro do detectarColunas(), por uma razão concreta:
+   aquela função se protege com `if(colunasDetectadas) return` — uma vez por
+   sessão. Mas projetos não tem grant para o anon, então a sondagem feita
+   DESLOGADO responde 401 ("false") e ficaria congelada assim; entrar com o
+   Google chama recarregar() → load(), que sairia na primeira linha, e o card
+   nunca apareceria. Este é o formato do verificarAdmin(), que também depende
+   de quem está logado e por isso roda a cada load(). */
+async function detectarProjetos(){
+  temProjetos = false;
+  if(!logado()) return;
+  temProjetos = (await sondar("projetos?select=id&limit=1")) === true;
 }
 
 async function carregarTrilha(){
@@ -848,7 +913,22 @@ async function carregarTrilha(){
   const embedMat = temMateriais
     ? `,materiais(id,titulo,url,tipo,nota,ordem${temOrigem?",origem_id":""})`
     : "";
-  const temas = await sbFetch(`temas?select=id,slug,nome,emoji,resumo,ordem${extraTema},itens(id,texto,detalhe,ordem${extraItem})${embedMat}&${filtro}&order=ordem`);
+  /* Filtrar o arquivado AQUI, e não em cada tela, é o que faz stats(),
+     totals(), viewAfazer(), viewResumo() e todosMateriais() continuarem
+     corretos sem uma linha alterada: o que não entra no state não pode ser
+     esquecido por nenhuma delas. O preço é o #historico ter de buscar o
+     arquivado por conta própria — uma requisição, numa tela só.
+
+     "arquivado_em=is.null" sem prefixo filtra TEMAS (nível de cima);
+     "itens.arquivado_em=is.null" filtra o EMBED. Filtrar um embed to-many
+     não some com o pai: tema com todos os itens arquivados continua vindo,
+     com itens:[], e stats() devolve 0/0 — que é o certo.
+
+     E o progresso NÃO é tocado por isto: carregarProgresso() é outra
+     requisição, que não conhece itens. É por isso que a sequência de dias e
+     o mapa de 12 semanas continuam contando o item arquivado. */
+  const filtroArq = temArquivo ? "&arquivado_em=is.null&itens.arquivado_em=is.null" : "";
+  const temas = await sbFetch(`temas?select=id,slug,nome,emoji,resumo,ordem${extraTema},itens(id,texto,detalhe,ordem${extraItem})${embedMat}&${filtro}${filtroArq}&order=ordem`);
   return {
     meta: clone(SEED.meta),
     abas: temas.map(t=>({
@@ -1103,8 +1183,25 @@ async function carregarNovidades(st){
       (a.materiais||[]).forEach(m=>{ if(m.origemId) meusMats.add(m.origemId); });
     });
 
+    /* O arquivado não está no `st` — o carregarTrilha() já o filtrou — e sem
+       isto a origem dele sumiria do índice acima: a MESMA linha do modelo
+       voltaria a ser oferecida como novidade, e aceitar criaria uma cópia do
+       que você acabou de arquivar. Falha silenciosa, sem erro nenhum, então
+       ela é paga aqui com duas consultas de uma coluna só. */
+    const temasArquivados = new Set();
+    if(temArquivo){
+      const [ai, at] = await Promise.all([
+        sbFetch(`itens?arquivado_em=not.is.null&user_id=eq.${sessao.user.id}&select=origem_id`),
+        sbFetch(`temas?arquivado_em=not.is.null&user_id=eq.${sessao.user.id}&select=origem_id`)
+      ]);
+      (ai||[]).forEach(r=>{ if(r.origem_id) meusItens.add(r.origem_id); });
+      (at||[]).forEach(r=>{ if(r.origem_id) temasArquivados.add(r.origem_id); });
+    }
+
     const temas = [], itens = [], materiais = [];
     (modelo||[]).forEach(mt=>{
+      /* Tema que VOCÊ arquivou: não reoferecer o tema nem os itens dele. */
+      if(temasArquivados.has(mt.id)) return;
       const meu = meusTemas.get(mt.id);
       if(!meu){
         /* Tema inteiro novo. Não listamos os itens nem os materiais dele um
@@ -1248,6 +1345,7 @@ async function load(){
       try{
         await detectarColunas();
         await verificarAdmin();
+        await detectarProjetos();
         if(!souAdmin) modoModelo = false;   // perdeu o crachá (ou trocou de conta): sai do modo
         const st = await carregarTrilha();
         offline = false; retratoDe = "";
@@ -1313,7 +1411,7 @@ async function tentarReconectar(){
 window.addEventListener("online", tentarReconectar);
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) tentarReconectar(); });
 
-async function recarregar(){ state = await load(); editingId = editingAba = editingNota = editingMat = null; render(); }
+async function recarregar(){ state = await load(); editingId = editingAba = editingNota = editingMat = editandoProj = editandoTarefa = null; render(); }
 
 /* --------------------------- Slugs --------------------------- */
 /* O slug é a rota (#fundamentos-ia). Tira acento, espaço e maiúscula para o
@@ -1511,7 +1609,12 @@ function go(id){ if(route()===id){ render(); } else { location.hash = id; } }
 window.addEventListener("hashchange", async ()=>{
   editingId = null; editingNota = null; editingMat = null;
   iaExplicando = null; iaTexto = ""; iaPainel = null; chatAberto = false;
+  historico = null;   // some ao sair; entrar de novo mostra o ⏳ e busca outra vez
+  editandoProj = null; editandoTarefa = null;
   const r = route();
+  /* Antes do render() logo abaixo: sem isto, o quadro ANTERIOR piscaria por um
+     frame enquanto o fetch do novo não volta. */
+  if(r.startsWith("projeto/")){ projetoAberto = null; tarefas = []; }
   /* Material novo que nunca chegou a ser salvo não sobrevive à navegação —
      mesma regra do tema novo logo abaixo. */
   if(state) state.abas.forEach(a=>{ if(a.materiais) a.materiais = a.materiais.filter(m=>!m.novo); });
@@ -1523,6 +1626,9 @@ window.addEventListener("hashchange", async ()=>{
   if(editingAba===r) focusTema();   // o formulário só existe depois deste render
   if(r==="mural"){ await carregarMensagens(); render(); }
   if(r==="revisar"){ cartaoAberto = false; await carregarCartoes(); render(); }
+  if(r==="historico"){ await carregarHistorico(); render(); }
+  if(r==="projetos"){ await carregarProjetos(); render(); }
+  if(r.startsWith("projeto/")){ await carregarProjeto(r.slice(8)); render(); }
   ajustarMural();
 });
 
@@ -1552,6 +1658,28 @@ function viewHome(){
     <button class="card feature" data-go="materiais">
       <div class="c-top"><span class="c-emoji">📎</span>${nm?`<span class="badge">${nm}</span>`:""}</div>
       <div><p class="c-name">Materiais</p><p class="c-sub">${nm?"Cursos, vídeos e artigos que você guardou":"Guarde links de estudo por tema"}</p></div>
+    </button>`;
+  }
+
+  /* Só para quem está logado: sem conta não há data guardada, e um histórico
+     sem "quando" não é histórico. */
+  if(logado() && !modoModelo){
+    cards += `
+    <button class="card feature" data-go="historico">
+      <div class="c-top"><span class="c-emoji">📜</span>${ov.d?`<span class="badge">${ov.d}</span>`:""}</div>
+      <div><p class="c-name">Histórico</p><p class="c-sub">${ov.d?"Tudo que você já concluiu, guardado":"O que você concluir fica guardado aqui"}</p></div>
+    </button>`;
+  }
+
+  if(podeProjetos()){
+    /* `projetos` só é carregado na rota #projetos, então o badge aparece a
+       partir da primeira visita — igual ao de #revisar, que depende do
+       carregarCartoes(). Sem badge o card continua correto. */
+    const np = projetos.filter(p=>!p.arquivado_em).length;
+    cards += `
+    <button class="card feature" data-go="projetos">
+      <div class="c-top"><span class="c-emoji">📁</span>${np?`<span class="badge">${np}</span>`:""}</div>
+      <div><p class="c-name">Projetos</p><p class="c-sub">${np?`${np} projeto${np===1?"":"s"} em andamento`:"Um quadro de tarefas por projeto"}</p></div>
     </button>`;
   }
 
@@ -1754,7 +1882,14 @@ function acoesItem(it){
   const nota = (temNota && !modoModelo)
     ? `<button class="mini ${it.nota?"com-nota":""}" data-action="nota" title="Anotações">📝${it.nota?" •":""}</button>`
     : "";
-  return `<div class="item-actions">${ia}${nota}<button class="mini" data-action="edit">editar</button><button class="mini danger" data-action="delete">excluir</button></div>`;
+  /* Some no modo modelo de propósito: o trigger de cadastro copia os itens do
+     modelo sem olhar arquivado_em, então um item arquivado LÁ continuaria
+     nascendo ativo em toda conta nova — inconsistência mais barata de não
+     deixar existir do que de consertar depois. */
+  const arq = (temArquivo && !modoModelo && !it.novo)
+    ? `<button class="mini" data-action="arquivar" title="Arquivar — sai da lista; o que você já estudou continua contando">🗄</button>`
+    : "";
+  return `<div class="item-actions">${ia}${nota}<button class="mini" data-action="edit">editar</button>${arq}<button class="mini danger" data-action="delete">excluir</button></div>`;
 }
 
 /* ========================= Telas da IA ========================= */
@@ -2051,6 +2186,375 @@ function viewMateriais(){
   </div>`;
 }
 
+/* ------------------- Telas de projeto ------------------- */
+
+function viewProjetos(){
+  if(!logado()){
+    return `<div class="wrap">${topBar()}
+      <div class="sec-head"><div class="eyebrow">projetos</div><h2>📁 Projetos</h2>
+        <p>Os quadros ficam na sua conta.</p></div>
+      ${convite("Entre com o Google para organizar seus projetos em tarefas.")}</div>`;
+  }
+  if(!temProjetos){
+    return `<div class="wrap">${topBar()}
+      <div class="sec-head"><div class="eyebrow">projetos</div><h2>📁 Projetos</h2>
+        <p>Este recurso precisa das tabelas <code>projetos</code> e <code>tarefas</code> no banco (rode o <code>supabase-projetos.sql</code>).</p></div>
+      <div class="empty-state"><div class="big">🔌</div><p>Ainda não disponível neste banco.</p></div></div>`;
+  }
+
+  const ativos = projetos.filter(p=>!p.arquivado_em);
+  const arqs   = projetos.filter(p=>p.arquivado_em);
+  const lista  = filtroProj==="arquivados" ? arqs : ativos;
+  const chip = (k,rot,n)=>`<button class="mini ${filtroProj===k?"on":""}" data-action="proj-filtro" data-f="${k}">${rot} ${n}</button>`;
+
+  let corpo;
+  if(!lista.length){
+    corpo = filtroProj==="arquivados"
+      ? `<div class="empty-state"><div class="big">🗄</div><p>Nenhum projeto arquivado.</p></div>`
+      : `<div class="empty-state"><div class="big">📁</div>
+          <p class="item-text" style="color:var(--ink)">Nenhum projeto ainda</p>
+          <p>Um projeto é um quadro com tarefas em três colunas: a fazer, fazendo e feito.</p></div>`;
+  } else {
+    corpo = `<ul class="list">${lista.map(linhaProjeto).join("")}</ul>`;
+  }
+
+  return `<div class="wrap">${topBar()}
+    <div class="sec-head">
+      <div class="eyebrow">projetos — ${ativos.length} ativo${ativos.length===1?"":"s"}</div>
+      <h2>📁 Projetos</h2>
+      <p>Um quadro de tarefas por projeto. Por enquanto só seus — compartilhar em grupo vem depois.</p>
+      <div class="prog-inline mat-filtros">${chip("ativos","ativos",ativos.length)}${chip("arquivados","🗄 arquivados",arqs.length)}</div>
+    </div>
+    ${corpo}
+    ${filtroProj==="arquivados"?"":`<button class="add-item" data-action="proj-novo">+ novo projeto</button>`}
+  </div>`;
+}
+
+function linhaProjeto(p){
+  if(editandoProj === p.id) return formProjeto(p);
+  const ts = p.tarefas || [];
+  const feitas = ts.filter(t=>t.status==="feito").length;
+  const arq = Boolean(p.arquivado_em);
+  /* Excluir só aparece DEPOIS de arquivar, e é de propósito: tarefas.projeto_id
+     é on delete cascade, então excluir um projeto leva o quadro inteiro junto —
+     a mesma família de perda silenciosa do temas → itens → progresso. Arquivar
+     é a saída de sempre; excluir é o segundo clique consciente. */
+  return `<li class="item" data-proj="${p.id}">
+    <span class="tar-mark">${arq?"🗄":"📁"}</span>
+    <div class="item-body">
+      <p class="item-text">${esc(p.nome)}</p>
+      ${p.descricao?`<p class="item-detail">${esc(p.descricao)}</p>`:""}
+      <span class="chip">${feitas}/${ts.length} concluída${ts.length===1?"":"s"}</span>
+    </div>
+    <div class="item-actions">
+      ${arq?"":`<button class="mini" data-go="projeto/${p.id}">abrir →</button>`}
+      <button class="mini" data-action="proj-edit">✎</button>
+      <button class="mini" data-action="${arq?"proj-desarquivar":"proj-arquivar"}">${arq?"↩ reativar":"🗄 arquivar"}</button>
+      ${arq?`<button class="mini danger" data-action="proj-delete">excluir</button>`:""}
+    </div>
+  </li>`;
+}
+
+function formProjeto(p){
+  return `<li class="item editing" data-proj="${p.id}">
+    <form class="edit-form" data-form-proj="${p.id}">
+      <input name="nome" value="${esc(p.nome||"")}" placeholder="Nome do projeto" maxlength="80" autocomplete="off" required>
+      <input name="descricao" class="detail" value="${esc(p.descricao||"")}" placeholder="Descrição (opcional)" maxlength="300" autocomplete="off">
+      <div class="row">
+        <button type="button" class="btn" data-action="proj-cancel">Cancelar</button>
+        <button type="submit" class="btn primary">${p.novo?"Criar projeto":"Salvar"}</button>
+      </div>
+    </form>
+  </li>`;
+}
+
+function viewProjeto(id){
+  if(!podeProjetos()) return viewProjetos();   // reaproveita as guardas de login/capacidade
+  if(!projetoAberto){
+    return `<div class="wrap">${topBar()}<div class="empty-state">
+      <div class="big">⏳</div><p>Abrindo o projeto…</p></div></div>`;
+  }
+  const conta = k => tarefas.filter(t=>t.status===k).length;
+  const chip  = k => `<button class="mini ${colunaTar===k?"on":""}" data-action="tar-filtro" data-col="${k}">${COLUNAS[k].marca} ${COLUNAS[k].rotulo} ${conta(k)}</button>`;
+  const chips = ORDEM_COL.map(chip).join("")
+    + `<button class="mini ${colunaTar==="tudo"?"on":""}" data-action="tar-filtro" data-col="tudo">tudo ${tarefas.length}</button>`;
+
+  const cols = colunaTar==="tudo" ? ORDEM_COL : [colunaTar];
+  const quadro = cols.map(k=>`
+    <div class="col">
+      <div class="section-label">${COLUNAS[k].marca} ${COLUNAS[k].rotulo} — ${conta(k)}</div>
+      <ul class="list">${tarefas.filter(t=>t.status===k).map(linhaTarefa).join("")
+        || `<li class="col-vazia">nada aqui</li>`}</ul>
+      <button class="add-item" data-action="tar-add" data-status="${k}">+ nova tarefa</button>
+    </div>`).join("");
+
+  return `<div class="wrap">${topBar()}
+    <div class="sec-head">
+      <div class="eyebrow">projeto — ${tarefas.length} tarefa${tarefas.length===1?"":"s"}</div>
+      <h2>📁 ${esc(projetoAberto.nome)}</h2>
+      ${projetoAberto.descricao?`<p>${esc(projetoAberto.descricao)}</p>`:""}
+      <div class="prog-inline mat-filtros">${chips}</div>
+    </div>
+    <div class="quadro ${colunaTar==="tudo"?"tudo":""}">${quadro}</div>
+  </div>`;
+}
+
+function linhaTarefa(t){
+  if(editandoTarefa === t.id) return formTarefa(t);
+  /* Sem arrastar-soltar, decidido no plano: é ruim em tela pequena e caro de
+     fazer. Dois botões que dizem para onde vão resolvem o mesmo problema. */
+  const i = ORDEM_COL.indexOf(t.status);
+  const antes = ORDEM_COL[i-1], depois = ORDEM_COL[i+1];
+  return `<li class="item ${t.status==="feito"?"feita":""}" data-id="${t.id}">
+    <span class="tar-mark">${COLUNAS[t.status].marca}</span>
+    <div class="item-body">
+      <p class="item-text">${esc(t.titulo)}</p>
+      ${t.detalhe?`<p class="item-detail">${esc(t.detalhe)}</p>`:""}
+      ${chipPrazo(t)}
+    </div>
+    <div class="item-actions">
+      ${antes ?`<button class="mini" data-action="tar-mover" data-para="${antes}">← ${COLUNAS[antes].rotulo}</button>`:""}
+      ${depois?`<button class="mini" data-action="tar-mover" data-para="${depois}">${COLUNAS[depois].rotulo} →</button>`:""}
+      <button class="mini" data-action="tar-edit">✎</button>
+      <button class="mini danger" data-action="tar-delete">🗑</button>
+    </div>
+  </li>`;
+}
+
+function formTarefa(t){
+  return `<li class="item editing" data-id="${t.id}">
+    <form class="edit-form" data-form-tarefa="${t.id}">
+      <input name="titulo" value="${esc(t.titulo||"")}" placeholder="O que fazer…" maxlength="120" autocomplete="off" required>
+      <input name="detalhe" class="detail" value="${esc(t.detalhe||"")}" placeholder="Detalhe (opcional)" maxlength="500" autocomplete="off">
+      <div class="row-tema">
+        <input type="date" name="prazo" value="${esc(t.prazo||"")}" aria-label="Prazo (opcional)">
+      </div>
+      <div class="row">
+        <button type="button" class="btn" data-action="tar-cancel">Cancelar</button>
+        <button type="submit" class="btn primary">${t.novo?"Adicionar":"Salvar"}</button>
+      </div>
+    </form>
+  </li>`;
+}
+
+/* ========================= Histórico ==========================
+   O lugar para onde olhar ANTES de excluir qualquer coisa. Duas listas
+   que respondem à mesma pergunta — "cadê o que eu já fiz?" — e nenhuma
+   das duas está no `state`: o carregarTrilha() filtra o arquivado, e um
+   item concluído pode estar num tema que você arquivou.
+
+   As duas chegam juntas, então o chip da tela não dispara rede: ele só
+   troca a lista, exatamente como o mat-filtro já faz.
+============================================================== */
+
+/* ==================== Projetos e tarefas ====================
+   Fase 2a: tudo pessoal. A coluna grupo_id já existe no banco e fica
+   nula — compartilhar, na 2b, é preencher o campo.
+============================================================== */
+
+function podeProjetos(){ return temProjetos && logado() && !offline && !modoModelo; }
+
+/* O embed traz o status de cada tarefa junto, e é ele que dá o contador
+   "4/9" sem uma segunda requisição. Os arquivados vêm no mesmo bolo: o
+   filtro é no cliente, como em viewMateriais(), e assim o chip já sabe a
+   conta sem perguntar de novo. */
+async function carregarProjetos(){
+  projetos = [];
+  if(!podeProjetos()) return;
+  try{
+    projetos = await sbFetch(
+      "projetos?select=id,nome,descricao,ordem,grupo_id,arquivado_em,tarefas(status)&order=ordem"
+    ) || [];
+  }catch(e){ console.error("Projetos:", e); projetos = []; }
+}
+
+async function carregarProjeto(id){
+  projetoAberto = null; tarefas = [];
+  if(!podeProjetos()) return;
+  try{
+    const r = await sbFetch(`projetos?select=*,tarefas(*)&id=eq.${encodeURIComponent(id)}&limit=1`);
+    const p = Array.isArray(r) ? r[0] : null;
+    /* Não distingue "não existe" de "o RLS filtrou" — e para a TELA isso é
+       o certo. Como prova de RLS não serve para nada, e é justamente a
+       "versão fraca do teste" que o PLANO.md descreve. */
+    if(!p) return;
+    tarefas = (p.tarefas||[]).sort((a,b)=>(a.ordem||0)-(b.ordem||0));   // o embed não garante ordem
+    delete p.tarefas;
+    projetoAberto = p;
+  }catch(e){ console.error("Projeto:", e); projetoAberto = null; tarefas = []; }
+}
+
+function acharTarefa(id){ return tarefas.find(t=>t.id===id) || null; }
+function acharProjeto(id){ return projetos.find(p=>p.id===id) || null; }
+
+/* ⚠ prazo é `date`, não `timestamptz`, e chega como "2026-08-03". Passar isso
+   por new Date() o interpreta como MEIA-NOITE EM UTC — e em São Paulo (UTC-3)
+   o .getDate() devolve o dia ANTERIOR. O diaCurto() cai nessa armadilha porque
+   foi escrito para concluido_em, que é timestamptz. Montar a data por partes é
+   o conserto, e é o espelho exato do chaveDia(). */
+function diaDoPrazo(s){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s||"")); if(!m) return null;
+  return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+}
+function chipPrazo(t){
+  const d = diaDoPrazo(t.prazo); if(!d) return "";
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const venceu = t.status !== "feito" && d < hoje;
+  return `<span class="chip prazo ${venceu?"venceu":""}">⏰ ${String(d.getDate()).padStart(2,"0")}/${MES_CURTO[d.getMonth()]}${venceu?" · atrasada":""}</span>`;
+}
+
+/* Cabeçalho de grupo. Mesmo motivo do chaveDia(): a data vem em UTC e o
+   mês tem que ser o do APARELHO, senão a virada do mês pula de grupo. */
+const fmtMes = new Intl.DateTimeFormat("pt-BR", { month:"long", year:"numeric" });
+function mesDe(iso){ const d = new Date(iso); return isNaN(d) ? "sem data" : fmtMes.format(d); }
+
+/* Relação to-one do PostgREST vem como objeto; to-many, como array. Este
+   helper aceita os dois e evita um `.nome` de undefined. */
+const umSo = x => Array.isArray(x) ? x[0] : x;
+
+async function carregarHistorico(){
+  if(!logado() || offline){
+    historico = Object.assign(montarHistoricoLocal(), { parcial:true });
+    return;
+  }
+  try{
+    /* O caminho progresso → itens → temas existe nas chaves estrangeiras
+       desde a migração de contas; o PostgREST desce por elas numa
+       requisição só, e o RLS continua valendo em cada nível.
+       progressoEm NÃO entra aqui: a data vem do próprio concluido_em. */
+    const pedidos = [
+      sbFetch(`progresso?select=item_id,concluido_em,itens(texto${temNota?",nota":""},temas(nome,emoji))&order=concluido_em.desc&limit=1000`)
+    ];
+    if(temArquivo){
+      pedidos.push(sbFetch(`itens?arquivado_em=not.is.null&user_id=eq.${sessao.user.id}&select=id,texto,arquivado_em,temas(nome,emoji)&order=arquivado_em.desc&limit=500`));
+      pedidos.push(sbFetch(`temas?arquivado_em=not.is.null&user_id=eq.${sessao.user.id}&select=id,nome,emoji,arquivado_em,itens(id)&order=arquivado_em.desc&limit=200`));
+    }
+    const [prog, itensArq, temasArq] = await Promise.all(pedidos);
+    historico = {
+      parcial: false,
+      feitos: (prog||[]).map(l=>{
+        const it = umSo(l.itens) || {}, tm = umSo(it.temas) || {};
+        return { id:l.item_id, iso:l.concluido_em, texto: it.texto || "(item removido)",
+                 nota: it.nota || "", tema: tm.nome || "", emoji: tm.emoji || "📘" };
+      }),
+      itens: (itensArq||[]).map(i=>{
+        const tm = umSo(i.temas) || {};
+        return { id:i.id, texto:i.texto, iso:i.arquivado_em, tema:tm.nome||"", emoji:tm.emoji||"📘" };
+      }),
+      temas: (temasArq||[]).map(t=>({
+        id:t.id, texto:t.nome, iso:t.arquivado_em, emoji:t.emoji||"📘", n:(t.itens||[]).length
+      }))
+    };
+  }catch(e){
+    console.error("Histórico:", e);
+    historico = Object.assign(montarHistoricoLocal(), { parcial:true });
+  }
+}
+
+/* Reserva para quem está sem rede ou deslogado. progressoEm tem TODAS as
+   datas, inclusive as de item arquivado — mas o TEXTO só existe para o
+   que está no state. Por isso ela é reserva e não a fonte, e a tela diz
+   em voz alta que está incompleta. */
+function montarHistoricoLocal(){
+  const feitos = [];
+  if(state) state.abas.forEach(a=>a.itens.forEach(it=>{
+    if(!progresso.has(it.id)) return;
+    feitos.push({ id:it.id, iso: progressoEm.get(it.id)||"", texto:it.texto,
+                  nota:it.nota||"", tema:a.nome, emoji:a.emoji });
+  }));
+  feitos.sort((x,y)=>String(y.iso).localeCompare(String(x.iso)));
+  return { feitos, itens: [], temas: [] };
+}
+
+function linhaHistorico(f){
+  return `<li class="item is-done" data-id="${f.id}">
+    <span class="check-vazio" aria-hidden="true"></span>
+    <div class="item-body">
+      <p class="item-text">${esc(f.texto)}</p>
+      <span class="chip">${esc(f.emoji)} ${esc(f.tema)}</span>
+      ${f.iso?`<span class="pill-done">✓ ${diaCurto(f.iso)}</span>`:""}
+      ${f.nota?`<p class="item-nota">${esc(f.nota)}</p>`:""}
+    </div>
+    <span></span>
+  </li>`;
+}
+
+/* `tema` decide qual tabela o desarquivar vai tocar — e o id vem do
+   .item ancestral, como em todo botão deste app. */
+function linhaArquivada(x, tema){
+  return `<li class="item" data-id="${x.id}">
+    <span class="check-vazio" aria-hidden="true"></span>
+    <div class="item-body">
+      <p class="item-text">${esc(x.texto)}</p>
+      ${tema
+        ? `<span class="chip">${esc(x.emoji)} tema inteiro · ${x.n} ${x.n===1?"item":"itens"}</span>`
+        : `<span class="chip">${esc(x.emoji)} ${esc(x.tema)}</span>`}
+      ${x.iso?`<span class="pill-done">🗄 ${diaCurto(x.iso)}</span>`:""}
+    </div>
+    <div class="item-actions">
+      <button class="mini" data-action="${tema?"tema-desarquivar":"desarquivar"}">↩ desarquivar</button>
+    </div>
+  </li>`;
+}
+
+function viewHistorico(){
+  const h = historico;
+  if(h === null){
+    return `<div class="wrap">${topBar()}<div class="empty-state">
+      <div class="big">⏳</div><p>Buscando o que você já fez…</p></div></div>`;
+  }
+  const nf = h.feitos.length, na = h.itens.length + h.temas.length;
+
+  const chips = `<div class="prog-inline mat-filtros">
+    <button class="mini ${filtroHist==="feitos"?"on":""}" data-action="hist-filtro" data-tipo="feitos">✓ concluídos ${nf}</button>
+    ${temArquivo?`<button class="mini ${filtroHist==="arquivados"?"on":""}" data-action="hist-filtro" data-tipo="arquivados">🗄 arquivados ${na}</button>`:""}
+  </div>`;
+
+  let corpo;
+  if(filtroHist === "arquivados"){
+    if(!na){
+      corpo = `<div class="empty-state"><div class="big">🗄</div>
+        <p class="item-text" style="color:var(--ink)">Nada arquivado</p>
+        <p>Use 🗄 num item ou tema para tirá-lo da lista de estudo sem perder o que você já estudou nele.</p></div>`;
+    } else {
+      corpo =
+        (h.temas.length?`<div class="section-label">temas arquivados</div>
+          <ul class="list">${h.temas.map(t=>linhaArquivada(t, true)).join("")}</ul>`:"")
+      + (h.itens.length?`<div class="section-label">itens arquivados</div>
+          <ul class="list">${h.itens.map(i=>linhaArquivada(i, false)).join("")}</ul>`:"");
+    }
+  } else if(!nf){
+    corpo = `<div class="empty-state"><div class="big">📜</div>
+      <p class="item-text" style="color:var(--ink)">Nada concluído ainda</p>
+      <p>Assim que você marcar o primeiro ✓, ele aparece aqui — com a data e a sua anotação.</p></div>`;
+  } else {
+    /* Agrupado por mês, sequencialmente: a lista já vem do mais recente
+       para o mais antigo, e reordenar aqui criaria uma segunda fonte da
+       verdade sobre a ordem. */
+    const grupos = [];
+    h.feitos.forEach(f=>{
+      const k = String(f.iso||"").slice(0,7) || "sem-data";
+      const ult = grupos[grupos.length-1];
+      if(!ult || ult.k !== k) grupos.push({ k, rotulo: f.iso?mesDe(f.iso):"sem data", linhas:[f] });
+      else ult.linhas.push(f);
+    });
+    corpo = grupos.map(g=>`<div class="section-label">${esc(g.rotulo)}</div>
+      <ul class="list">${g.linhas.map(linhaHistorico).join("")}</ul>`).join("");
+  }
+
+  return `<div class="wrap">${topBar()}
+    <div class="sec-head">
+      <div class="eyebrow">histórico — ${nf} conclusõe${nf===1?"":"s"}</div>
+      <h2>📜 Histórico</h2>
+      <p>Tudo que você já concluiu, do mais recente para o mais antigo, com a sua anotação. Arquivar um item tira ele da lista de estudo — <b>nada aqui deixa de contar por causa disso</b>.</p>
+      ${chips}
+    </div>
+    ${!logado()?convite("As datas ficam na sua conta. Sem login, este navegador guarda só o ✓ — não o <b>quando</b>."):""}
+    ${h.parcial&&logado()?`<p class="foot" style="text-align:left">Sem conexão: mostrando só o que está neste aparelho.</p>`:""}
+    ${corpo}
+  </div>`;
+}
+
 function viewStage(idx){
   const a = state.abas[idx]; const s = stats(a);
   let items = a.itens.map(it=>{
@@ -2103,6 +2607,7 @@ function viewStage(idx){
           <button class="mini" data-action="tema-edit">✎ editar tema</button>
           <button class="mini" data-action="tema-up" ${idx===0?"disabled":""}>↑ subir</button>
           <button class="mini" data-action="tema-down" ${idx===state.abas.length-1?"disabled":""}>↓ descer</button>
+          ${temArquivo && !modoModelo && a.dbId?`<button class="mini" data-action="tema-arquivar">🗄 arquivar tema</button>`:""}
           <button class="mini danger" data-action="tema-delete">🗑 excluir tema</button>
         </div>`:""}
       </div>`;
@@ -2329,6 +2834,12 @@ function render(){
   else if(r==="novidades") html = viewNovidades();
   else if(r==="materiais") html = viewMateriais();
   else if(r==="revisar") html = viewRevisar();
+  else if(r==="historico") html = viewHistorico();
+  else if(r==="projetos") html = viewProjetos();
+  /* A rota tem barra, e o `else` abaixo trataria "projeto/<uuid>" como slug de
+     tema. Não há colisão possível: slugUnico() passa por slugify(), que troca
+     tudo que não é [a-z0-9] por "-", então id de aba NUNCA contém "/". */
+  else if(r.startsWith("projeto/")) html = viewProjeto(r.slice(8));
   else { const idx = state.abas.findIndex(a=>a.id===r); if(idx<0){ location.hash=""; return; } html = viewStage(idx); }
   $("#app").innerHTML = faixaRede() + faixaModelo() + faixaNovidades() + html;
 }
@@ -2346,6 +2857,9 @@ document.addEventListener("click", async e=>{
   const action = act.dataset.action;
   const li = act.closest(".item"); const id = li?.dataset.id;
   const matId = act.closest("[data-mat]")?.dataset.mat;
+  /* Tarefa não precisa de linha aqui: ela usa <li class="item" data-id>, que
+     o `id` acima já cobre. Projeto tem contêiner próprio, como material. */
+  const projId = act.closest("[data-proj]")?.dataset.proj;
 
   switch(action){
     case "reconectar":
@@ -2423,11 +2937,27 @@ document.addEventListener("click", async e=>{
       break;
     }
 
+    case "tema-arquivar":{
+      const aba = state.abas.find(a=>a.id===route()); if(!aba || !aba.dbId) break;
+      const dbId = aba.dbId;
+      /* Não mexe no arquivado_em dos ITENS: evita um update em massa e faz o
+         desarquivar ser reversível de verdade — o tema volta exatamente como
+         estava, inclusive com os itens que você tinha arquivado um a um. */
+      state.abas = state.abas.filter(a=>a!==aba);
+      go("home");   // a rota #<slug> deixou de existir: sair ANTES de renderizar
+      await salvarNoServidor(()=> sbFetch(`temas?id=eq.${dbId}`,
+        {method:"PATCH", body: JSON.stringify({ arquivado_em: new Date().toISOString() })}));
+      break;
+    }
+
     case "tema-delete":{
       const aba = state.abas.find(a=>a.id===route()); if(!aba) break;
-      if(!confirm(`Excluir o tema "${aba.nome}" e seus ${aba.itens.length} itens?\n\nIsso afeta apenas a SUA trilha — a trilha oficial e a dos outros continuam intactas.`)) break;
+      /* Sem o número de itens de propósito: com o arquivar ligado, aba.itens
+         conta só os ATIVOS, mas o cascade leva os arquivados junto. Um número
+         errado é pior que nenhum, e contar direito custaria uma requisição. */
+      if(!confirm(`Excluir o tema "${aba.nome}" e TODOS os itens dele${temArquivo?" (inclusive os arquivados, que não aparecem nesta tela)":""}?\n\nIsso apaga também as datas em que você concluiu esses itens: a sequência de dias e o mapa de 12 semanas perdem esses dias, e os cartões somem.${temArquivo?"\n\nSe é só para tirar da lista, cancele e use 🗄 arquivar tema.":""}\n\nIsso afeta apenas a SUA trilha — a trilha oficial e a dos outros continuam intactas.`)) break;
       const dbId = aba.dbId;
-      aba.itens.forEach(it=>progresso.delete(it.id)); salvarProgresso();
+      aba.itens.forEach(it=>{ progresso.delete(it.id); progressoEm.delete(it.id); }); salvarProgresso();
       state.abas = state.abas.filter(a=>a!==aba);
       go("home");
       if(dbId) await salvarNoServidor(()=> sbFetch(`temas?id=eq.${dbId}`, {method:"DELETE"}));
@@ -2461,11 +2991,132 @@ document.addEventListener("click", async e=>{
     }
 
     case "delete":{
-      const f=findItem(id); if(!f || !confirm("Excluir este item?")) break;
+      const f=findItem(id); if(!f) break;
+      /* Dois textos. Item pendente é rascunho: excluir não custa nada. Item
+         CONCLUÍDO carrega a data em que você o concluiu, e o cascade a leva
+         junto — a sequência e o mapa perdem esse dia sem aviso nenhum. É a
+         perda invisível que este commit existe para nomear. */
+      const aviso = progresso.has(id)
+        ? `Excluir "${f.it.texto}"?\n\nEste item está CONCLUÍDO. Excluir apaga também a data em que você o concluiu: a sequência de dias e o mapa de 12 semanas perdem esse dia, e os cartões de revisão dele somem. Não tem desfazer.${temArquivo?"\n\nSe é só para tirar da lista, cancele e use 🗄 — assim o estudo continua contando.":""}`
+        : "Excluir este item?";
+      if(!confirm(aviso)) break;
       f.aba.itens = f.aba.itens.filter(i=>i.id!==id);
-      progresso.delete(id); salvarProgresso();
+      /* progressoEm junto com o Set: a linha do banco vai embora por cascade,
+         e deixar a data na memória faria a sequência contar um dia que o
+         banco já não tem — até o próximo F5. */
+      progresso.delete(id); progressoEm.delete(id); salvarProgresso();
       render();
       await salvarNoServidor(()=> sbFetch(`itens?id=eq.${id}`, {method:"DELETE"}));
+      break;
+    }
+
+    case "arquivar":{
+      const f = findItem(id); if(!f) break;
+      /* Sem confirm(): arquivar não destrói nada e tem volta em dois cliques
+         no #historico. A confirmação pesada fica no excluir, que é o que não
+         volta. E o progresso NÃO é tocado — é exatamente isso que faz o item
+         continuar contando na sequência, no mapa e no histórico. */
+      f.aba.itens = f.aba.itens.filter(i=>i.id!==id);
+      if(editingId===id) editingId = null;
+      if(editingNota===id) editingNota = null;
+      if(iaExplicando===id){ iaExplicando = null; iaTexto = ""; }
+      render();
+      await salvarNoServidor(()=> sbFetch(`itens?id=eq.${id}`,
+        {method:"PATCH", body: JSON.stringify({ arquivado_em: new Date().toISOString() })}));
+      break;
+    }
+
+    case "hist-filtro": filtroHist = act.dataset.tipo || "feitos"; render(); break;
+
+    /* --------------------- Projetos e tarefas --------------------- */
+    case "proj-filtro": filtroProj = act.dataset.f || "ativos"; render(); break;
+    case "tar-filtro":  colunaTar  = act.dataset.col || "a_fazer"; render(); break;
+
+    case "proj-novo":{
+      /* Nasce só na memória: o banco exige nome não-vazio, então ele só vira
+         linha quando você salvar o formulário. Mesma regra de item e material. */
+      const nid = uid();
+      const prox = projetos.reduce((m,p)=>Math.max(m, p.ordem||0), 0) + 1;
+      projetos.push({ id:nid, nome:"", descricao:"", ordem:prox, tarefas:[], novo:true });
+      filtroProj = "ativos"; editandoProj = nid; render();
+      $(`[data-form-proj="${nid}"] input[name="nome"]`)?.focus();
+      break;
+    }
+    case "proj-edit": editandoProj = (editandoProj===projId ? null : projId); render(); break;
+    case "proj-cancel":{
+      const p = acharProjeto(editandoProj);
+      if(p && p.novo) projetos = projetos.filter(x=>x!==p);
+      editandoProj = null; render(); break;
+    }
+    case "proj-arquivar":
+    case "proj-desarquivar":{
+      const p = acharProjeto(projId); if(!p || p.novo) break;
+      const quando = action==="proj-arquivar" ? new Date().toISOString() : null;
+      p.arquivado_em = quando; render();
+      await salvarNoServidor(()=> sbFetch(`projetos?id=eq.${p.id}`,
+        {method:"PATCH", body: JSON.stringify({ arquivado_em: quando })}));
+      break;
+    }
+    case "proj-delete":{
+      const p = acharProjeto(projId); if(!p) break;
+      const n = (p.tarefas||[]).length;
+      if(!confirm(`Excluir o projeto "${p.nome}"${n?` e as ${n} tarefa${n===1?"":"s"} dele`:""}?\n\nNão tem desfazer. Se é só para tirar da lista, cancele — ele já está arquivado.`)) break;
+      projetos = projetos.filter(x=>x!==p);
+      if(editandoProj===p.id) editandoProj = null;
+      render();
+      if(!p.novo) await salvarNoServidor(()=> sbFetch(`projetos?id=eq.${p.id}`, {method:"DELETE"}));
+      break;
+    }
+
+    case "tar-add":{
+      if(!projetoAberto) break;
+      const nid = uid();
+      const st = act.dataset.status || "a_fazer";
+      const prox = tarefas.reduce((m,t)=>Math.max(m, t.ordem||0), 0) + 1;
+      tarefas.push({ id:nid, projeto_id:projetoAberto.id, titulo:"", detalhe:"",
+                     status:st, prazo:null, ordem:prox, novo:true });
+      editandoTarefa = nid; render();
+      $(`[data-form-tarefa="${nid}"] input[name="titulo"]`)?.focus();
+      break;
+    }
+    case "tar-edit": editandoTarefa = (editandoTarefa===id ? null : id); render(); break;
+    case "tar-cancel":{
+      const t = acharTarefa(editandoTarefa);
+      if(t && t.novo) tarefas = tarefas.filter(x=>x!==t);
+      editandoTarefa = null; render(); break;
+    }
+    case "tar-mover":{
+      const t = acharTarefa(id); if(!t || t.novo) break;
+      const para = act.dataset.para; if(!COLUNAS[para]) break;
+      t.status = para; render();   // otimista, como o toggle do item
+      await salvarNoServidor(()=> sbFetch(`tarefas?id=eq.${t.id}`,
+        {method:"PATCH", body: JSON.stringify({ status: para })}));
+      break;
+    }
+    case "tar-delete":{
+      const t = acharTarefa(id); if(!t) break;
+      if(!t.novo && !confirm(`Excluir "${t.titulo}"?`)) break;
+      const eraNovo = Boolean(t.novo);
+      tarefas = tarefas.filter(x=>x!==t);
+      if(editandoTarefa===t.id) editandoTarefa = null;
+      render();
+      if(!eraNovo) await salvarNoServidor(()=> sbFetch(`tarefas?id=eq.${t.id}`, {method:"DELETE"}));
+      break;
+    }
+
+    case "desarquivar":
+    case "tema-desarquivar":{
+      if(!id) break;
+      const alvo = action === "desarquivar" ? "itens" : "temas";
+      carregando = true; render();
+      await salvarNoServidor(()=> sbFetch(`${alvo}?id=eq.${id}`,
+        {method:"PATCH", body: JSON.stringify({ arquivado_em: null })}));
+      /* load() é o caminho de volta inteiro: devolve a linha ao state, ao
+         stats(), ao viewAfazer() e ao #materiais de uma vez só, sem nenhuma
+         lógica de reinserção que pudesse discordar do servidor. */
+      state = await load();
+      await carregarHistorico();
+      carregando = false; render();
       break;
     }
 
@@ -2738,6 +3389,77 @@ document.addEventListener("submit", async e=>{
     return;
   }
 
+  /* ------------------------ Projeto ------------------------ */
+  const fp = e.target.closest("[data-form-proj]");
+  if(fp){
+    e.preventDefault();
+    const p = acharProjeto(fp.dataset.formProj);
+    if(!p){ editandoProj=null; render(); return; }
+    /* Cortes nos limites do CHECK do banco (80 / 300). */
+    const nome      = (fp.nome.value.trim() || "(sem nome)").slice(0,80);
+    const descricao = fp.descricao.value.trim().slice(0,300);
+    const eraNovo   = Boolean(p.novo);
+
+    p.nome = nome; p.descricao = descricao; delete p.novo;
+    editandoProj = null; render();
+
+    /* Id do cliente: é o que permite criar offline e entrar na fila. */
+    const novoP = eraNovo ? novoId() : null;
+    if(eraNovo){ p.id = novoP; render(); }
+
+    await salvarNoServidor(async ()=>{
+      if(eraNovo){
+        await sbFetch("projetos", {
+          method:"POST", headers:{ "Prefer":"return=minimal" },
+          body: JSON.stringify({ id:novoP, nome, descricao, ordem:p.ordem })
+        });
+      } else {
+        await sbFetch(`projetos?id=eq.${p.id}`, {
+          method:"PATCH", body: JSON.stringify({ nome, descricao })
+        });
+      }
+    });
+    return;
+  }
+
+  /* ------------------------- Tarefa ------------------------- */
+  const ftar = e.target.closest("[data-form-tarefa]");
+  if(ftar){
+    e.preventDefault();
+    const t = acharTarefa(ftar.dataset.formTarefa);
+    if(!t){ editandoTarefa=null; render(); return; }
+    /* Cortes nos limites do CHECK do banco (120 / 500). */
+    const titulo  = (ftar.titulo.value.trim() || "(sem título)").slice(0,120);
+    const detalhe = ftar.detalhe.value.trim().slice(0,500);
+    /* ⚠ `|| null`, e não o valor cru: <input type="date"> em branco devolve
+       string VAZIA, e "" numa coluna `date` do Postgres é
+       "invalid input syntax for type date" — um 400 no meio de um salvamento
+       que parecia trivial. */
+    const prazo   = ftar.prazo.value || null;
+    const eraNovo = Boolean(t.novo);
+
+    t.titulo = titulo; t.detalhe = detalhe; t.prazo = prazo; delete t.novo;
+    editandoTarefa = null; render();
+
+    const novoT = eraNovo ? novoId() : null;
+    if(eraNovo){ t.id = novoT; render(); }
+
+    await salvarNoServidor(async ()=>{
+      if(eraNovo){
+        await sbFetch("tarefas", {
+          method:"POST", headers:{ "Prefer":"return=minimal" },
+          body: JSON.stringify({ id:novoT, projeto_id:t.projeto_id, titulo, detalhe,
+                                 status:t.status, prazo, ordem:t.ordem })
+        });
+      } else {
+        await sbFetch(`tarefas?id=eq.${t.id}`, {
+          method:"PATCH", body: JSON.stringify({ titulo, detalhe, prazo })
+        });
+      }
+    });
+    return;
+  }
+
   /* ------------------------ Material ------------------------ */
   const fmat = e.target.closest("[data-form-mat]");
   if(fmat){
@@ -2930,7 +3652,10 @@ $("#fileIn").addEventListener("change", e=>{
     const nItens = d.abas.reduce((n,a)=>n+((a.itens&&a.itens.length)||0), 0);
     const ok = confirm(
       `Substituir a trilha inteira por ${d.abas.length} temas e ${nItens} itens?\n\n`+
-      `Isso APAGA a sua trilha atual (só a sua) e põe esta no lugar.\n`+
+      /* O Exportar serializa o `state`, que não tem os arquivados — então o
+         Importar apaga um conteúdo que o backup não guardou. Dizer isso é
+         mais barato que descobrir depois. */
+      `Isso APAGA a sua trilha atual (só a sua)${temArquivo?", inclusive o que você arquivou":""} e põe esta no lugar.\n`+
       `Se quiser poder voltar atrás, cancele e clique em Exportar antes.`
     );
     if(!ok){ e.target.value=""; return; }
@@ -2992,7 +3717,14 @@ render();   // pinta o "carregando" antes do primeiro fetch
 
   state = await load();
   carregando = false;
-  if(route()==="mural") await carregarMensagens();
+  /* Sem estas linhas, abrir o app instalado direto num #historico ou num
+     #projeto/<id> salvo na tela inicial mostraria a tela vazia até navegar
+     para outro lugar e voltar — e é o caso normal num PWA, não o excepcional. */
+  const r0 = route();
+  if(r0==="mural") await carregarMensagens();
+  else if(r0==="historico") await carregarHistorico();
+  else if(r0==="projetos") await carregarProjetos();
+  else if(r0.startsWith("projeto/")) await carregarProjeto(r0.slice(8));
   render();
   ajustarMural();
   authPronto = true;

@@ -62,6 +62,9 @@ Três decisões fazem o cliente quase não precisar saber disso:
 | Materiais | `TIPOS_MAT`, `urlSegura()`, `dominio()`, `blocoMateriais()`, `linhaMaterial()`, `viewMateriais()`, `acharMaterial()` |
 | Mural | `ligarRealtimeMural()`, `desligarRealtimeMural()`, `ajustarMural()`, `digitandoNoMural()` |
 | Migrações | `migrarProgressoAntigo()`, `migrarProgressoParaConta()` — casam por **texto** |
+| Arquivar | flag `temArquivo`, ações `arquivar`/`tema-arquivar`/`desarquivar`/`tema-desarquivar`, `avisoExclusao` embutido nos dois `confirm()` |
+| Histórico | `carregarHistorico()`, `montarHistoricoLocal()`, `viewHistorico()`, `linhaHistorico()`, `linhaArquivada()`, `mesDe()`, `umSo()` |
+| Projetos | `detectarProjetos()`, `podeProjetos()`, `carregarProjetos()`, `carregarProjeto()`, `viewProjetos()`, `viewProjeto()`, `linhaProjeto()`, `linhaTarefa()`, `formProjeto()`, `formTarefa()`, `diaDoPrazo()`, `chipPrazo()` |
 | Telas | `viewHome()`, `viewStage()`, `viewAfazer()`, `viewResumo()`, `viewMural()`, `render()` |
 | Ações | um `click` delegado com `switch(action)`, um `submit` com 3 ramos |
 
@@ -100,6 +103,8 @@ coisas offline.
 | `supabase-evolucao.sql` | Fases 3–6: realtime, `admins`, `origem_id`+`modelo_dispensado`, `nota`. Só adiciona policies |
 | `supabase-materiais.sql` | Tabela `materiais` (links por tema) + trigger de cadastro copiando materiais |
 | `supabase-ia.sql` | `ia_uso` (freio + extrato) e `ia_cartoes`. `registrar_uso_ia()` só para a service_role |
+| `supabase-arquivo.sql` | `arquivado_em` em `itens` e `temas`. Só duas colunas e dois índices parciais — **nenhuma policy nova**, porque as de dono já cobrem o `update` |
+| `supabase-projetos.sql` | Fase 2a do quadro: `projetos`, `tarefas`, helper `meu_projeto()`. `grupo_id` já existe, nulo e sem FK |
 | `supabase/functions/ia/index.ts` | Edge Function. **O único lugar com a chave do Gemini** |
 | `manifest.json`, `sw.js`, `icon-*.png` | PWA. O `sw.js` nunca intercepta `supabase.co` |
 | `data.json` | Backup versionável (está com a semente antiga; regerar pelo Exportar) |
@@ -248,6 +253,53 @@ coisas offline.
   menos estudo do que houve. Até o item 6 do `PLANO.md` existir (arquivar em vez de excluir), a
   única proteção é **não excluir nada que esteja concluído** — e isso precisa ser dito a ele,
   porque a perda é invisível.
+- **Filtrar na origem elimina o esquecimento; filtrar em cada tela o multiplica.** O plano do
+  arquivar mandava filtrar `arquivado_em` em cinco lugares (`carregarTrilha()`, `stats()`,
+  `totals()`, `viewAfazer()`, `#materiais`) e avisava que esquecer **um** faria as telas
+  discordarem sem erro. A escrita pôs o filtro **só no PostgREST**, dentro do
+  `carregarTrilha()` — `&arquivado_em=is.null&itens.arquivado_em=is.null`, o primeiro
+  filtrando temas e o segundo o embed. O que não entra no `state` não pode ser esquecido por
+  ninguém. E a sequência e o mapa de 12 semanas continuam contando o arquivado **de graça**,
+  porque `carregarProgresso()` é outra requisição, que não conhece `itens`.
+- **Tirar linha do `state` quebra `carregarNovidades()` em silêncio.** Ele indexa `origem_id`
+  a partir do `st`; item arquivado sai do índice, e então **a mesma linha do modelo volta a
+  ser oferecida como novidade** — aceitar cria uma cópia do que se acabou de arquivar. Sem
+  erro, sem log. Duas consultas de `origem_id` das linhas arquivadas fecham o buraco. Regra
+  geral: **qualquer filtro novo no `carregarTrilha()` tem que ser espelhado ali.**
+- **Recurso que depende de coluna em DUAS tabelas precisa sondar as duas.** Se
+  `arquivado_em` existisse em `itens` mas não em `temas`, o filtro do nível de cima
+  responderia **400**, `load()` tentaria três vezes e a trilha inteira cairia para o retrato.
+  Meia migração aqui não degrada, quebra — por isso `temArquivo` só liga com as duas
+  sondagens em `true`.
+- **Sondagem que depende de login NÃO pode morar no `detectarColunas()`.** Aquela função
+  memoiza com `if(colunasDetectadas) return`, uma vez por sessão. `projetos` não tem `grant
+  to anon`, então a sondagem feita **deslogado** responde 401 (= "não existe") e congela
+  assim; entrar com o Google chama `recarregar()` → `load()`, que sai na primeira linha, e o
+  card nunca aparece — sem erro nenhum, e o diagnóstico natural ("mas eu rodei o SQL!")
+  manda mexer no banco em vez do cliente. Por isso `detectarProjetos()` é separada, no
+  formato do `verificarAdmin()`, que roda a cada `load()`.
+- **Coluna `date` não é `timestamptz`, e o fuso vira ao contrário.** `tarefas.prazo` chega
+  como `"2026-08-03"`; `new Date()` lê isso como **meia-noite em UTC**, e em São Paulo
+  (UTC-3) o `.getDate()` devolve o **dia anterior**. `diaCurto()` cai nessa armadilha porque
+  foi escrito para `concluido_em`. `diaDoPrazo()` monta a data por partes — é o espelho
+  exato do `chaveDia()`, com o sinal trocado. Não dá erro: só mostra a data errada.
+- **`<input type="date">` em branco devolve string vazia, não `null`.** E `""` numa coluna
+  `date` do Postgres é `invalid input syntax for type date` — um **400** no meio de um
+  salvamento que parecia trivial. Todo campo de data opcional sai do formulário com
+  `.value || null`.
+- **`aba.itens.length` passou a contar só os ativos.** O `confirm()` do `tema-delete` dizia
+  "e seus N itens", mas o `on delete cascade` leva os arquivados junto — o número passou a
+  mentir por baixo. Trocado por "e TODOS os itens dele (inclusive os arquivados)": sem
+  número é mais honesto que com o número errado, e não custa uma requisição.
+- **Exportar não guarda o arquivado, e Importar o apaga.** `exportJSON()` serializa o
+  `state`, que já não tem os arquivados; `substituirTrilha()` faz `DELETE` e o cascade leva
+  os arquivados **e o `progresso` deles**. Está dito no `confirm()` do Importar; exportar
+  arquivado continua fora de escopo.
+- **Rota com barra (`#projeto/<id>`) e o fallback de slug convivem por construção, não por
+  sorte.** O `else` final do `render()` trata hash desconhecido como slug de tema. Não há
+  colisão porque `slugUnico()` passa por `slugify()`, que troca tudo que não é `[a-z0-9]` por
+  `-` — id de aba **nunca** contém `/`. Se alguém mexer no `slugify()`, esta é a linha que
+  quebra.
 - **`:empty` também casa com o `.check-vazio`.** O `<span></span>` que `acoesItem()` devolve
   para quem não pode editar precisa desaparecer no layout de duas colunas, senão o `gap`
   abre 14px de sobra. Mas o placeholder do ✓ no modo modelo é igualmente um span vazio e
@@ -294,7 +346,9 @@ Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirm
 | **IA — Fase 1** (SQL + Edge Function) | ✅ **no ar e funcionando com o Gemini** desde 2026-07-29 |
 | **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ✅ no ar, testado pelo Ricardo |
 | **IA — Fase 3** (`#revisar`, revisão espaçada) | ✅ escrita |
-| Quadro de projeto (pessoal → grupo) | ⏳ desenhado no plano, nada escrito |
+| **Arquivar + `#historico`** | ✅ escrito 2026-07-30 — falta rodar o `supabase-arquivo.sql` |
+| **Quadro de projeto — Fase 2a** (pessoal) | ✅ escrito 2026-07-30 — falta rodar o `supabase-projetos.sql` |
+| Quadro de projeto — Fase 2b (grupos) | ⏳ desenhado; **exige a segunda conta Google** |
 
 O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,
 pomodoro, exportar caderno, push, desfazer). Vale ler antes de propor qualquer uma.

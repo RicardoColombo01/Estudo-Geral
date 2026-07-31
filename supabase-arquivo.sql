@@ -69,6 +69,14 @@ create index if not exists temas_arquivado_idx on public.temas (user_id) where a
 -- =====================================================================
 --  3. CONFERÊNCIA
 -- =====================================================================
+--  ⚠ O SQL Editor do Supabase mostra só o resultado do ÚLTIMO comando de
+--  uma execução. Rodar o arquivo inteiro exibe apenas o select do fim
+--  ("arquivados_por_anonimo"), e os de cima passam despercebidos como se
+--  não tivessem rodado. Para ver cada um, cole-o SOZINHO numa query nova.
+--
+--  (Ainda assim, o último select já prova o principal: ele consulta
+--  itens.arquivado_em, então se ele respondeu um número em vez de erro,
+--  a coluna existe.)
 
 --  As colunas existem nas DUAS tabelas? Tem que dar 2. O app só liga o
 --  recurso com as duas: com meia migração, o filtro do nível de cima

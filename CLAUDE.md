@@ -253,6 +253,12 @@ coisas offline.
   menos estudo do que houve. Até o item 6 do `PLANO.md` existir (arquivar em vez de excluir), a
   única proteção é **não excluir nada que esteja concluído** — e isso precisa ser dito a ele,
   porque a perda é invisível.
+- **O SQL Editor do Supabase mostra só o resultado do ÚLTIMO comando.** Rodar um `.sql`
+  inteiro exibe apenas o último `select`, e os de conferência acima dele passam
+  despercebidos — parece que "só deu uma coluna" e que o resto não rodou. Rodou; só não foi
+  mostrado. Para ver cada um, colar **sozinho** numa query nova. Consequência para quem
+  escreve script novo: **pôr o `select` mais importante por último**, ou avisar no
+  comentário — foi o que custou tempo em 2026-07-30.
 - **Filtrar na origem elimina o esquecimento; filtrar em cada tela o multiplica.** O plano do
   arquivar mandava filtrar `arquivado_em` em cinco lugares (`carregarTrilha()`, `stats()`,
   `totals()`, `viewAfazer()`, `#materiais`) e avisava que esquecer **um** faria as telas

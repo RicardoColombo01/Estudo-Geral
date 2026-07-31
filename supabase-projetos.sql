@@ -244,6 +244,10 @@ create policy "tarefas: excluir as minhas" on public.tarefas for delete
 -- =====================================================================
 --  6. CONFERÊNCIA
 -- =====================================================================
+--  ⚠ O SQL Editor do Supabase mostra só o resultado do ÚLTIMO comando de
+--  uma execução. Rodar o arquivo inteiro exibe apenas a listagem de
+--  pg_policies, e o select de contagens abaixo passa despercebido como se
+--  não tivesse rodado. Para ver cada um, cole-o SOZINHO numa query nova.
 
 select
   (select count(*) from public.projetos) as projetos,

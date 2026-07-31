@@ -27,6 +27,11 @@ Login: **Google OAuth**. Dono: RicardoColombo01.
 - **Materiais de estudo** por tema + tela `#materiais` *(no ar; `supabase-materiais.sql` rodado)*
 - **IA** — botões ✨ (explicar item, sugerir materiais, gerar cartões), chat por tema e
   `#revisar` *(no ar desde 2026-07-29, rodando no **Gemini**; ver a seção de estado)*
+- **Arquivar em vez de excluir** — botão 🗄 no item e no tema, tela `#historico` com o que
+  foi concluído (agrupado por mês, com a anotação) e o desarquivar *(no ar desde 2026-07-30;
+  `supabase-arquivo.sql` rodado e **testado pelo Ricardo**)*
+- **Quadro de tarefas, Fase 2a** — `#projetos` e `#projeto/<id>`, três colunas no computador
+  e uma por vez no celular *(escrito 2026-07-30; depende do `supabase-projetos.sql`)*
 
 ## A regra que organiza tudo
 
@@ -317,6 +322,9 @@ coisas offline.
 O teste que vale não é "a funcionalidade funciona?", é **"o que deveria falhar, falha?"**.
 Foi assim que uma exposição real foi descoberta neste projeto:
 
+A `anon key` mora no próprio `index.html`, na constante `SB` — é pública de propósito, o que
+protege é o RLS. Não confundir com a `service_role` (ignora RLS) nem com a do Gemini.
+
 ```powershell
 $k = "<anon key>"; $base = "https://zezzpdhjjgqavtlxmgsp.supabase.co/rest/v1"
 $h = @{ apikey=$k; Authorization="Bearer $k"; "Content-Type"="application/json" }
@@ -324,7 +332,38 @@ $h = @{ apikey=$k; Authorization="Bearer $k"; "Content-Type"="application/json" 
 Invoke-RestMethod -Uri "$base/temas" -Method Post -Headers $h -Body '{"slug":"__x__","nome":"x","ordem":99}'
 ```
 
+**⚠️ INSERT e UPDATE falham de jeitos DIFERENTES, e o do UPDATE não parece falha.** Um
+`INSERT` barrado devolve **401/403**, vermelho na tela. Um `UPDATE` barrado **não devolve
+erro nenhum**: a cláusula `using` simplesmente não casa com nenhuma linha, e a resposta é
+**204 com corpo vazio** — que num script parece sucesso. Testar UPDATE exige um **id real** e
+a leitura certa:
+
+```powershell
+$id = "<uuid de uma linha SUA>"
+$h  = @{ apikey=$k; Authorization="Bearer $k"; "Content-Type"="application/json"; Prefer="return=representation" }
+(Invoke-WebRequest -Uri "$base/itens?id=eq.$id" -Method Patch -Headers $h `
+   -Body '{"arquivado_em":"2020-01-01T00:00:00Z"}').Content
+```
+
+O que prova o bloqueio é o **corpo não conter a linha** — `[]` ou vazio, os dois passam
+(medido em 2026-07-30: veio **vazio**, não `[]`). Se sair a linha, qualquer pessoa escreve na
+trilha de qualquer outra. E a confirmação que não tem como ler errado é pelo lado do banco:
+
+```sql
+select count(*) from public.itens where arquivado_em = '2020-01-01T00:00:00Z';   -- tem que ser 0
+```
+
+Como pegar um id real, do mais rápido ao mais chato: **botão direito num item do site →
+Inspecionar → `data-id` do `<li>`** (e, estando logado, o item já é da sua cópia, que é
+exatamente o caso que interessa); ou `select id, texto from public.itens where user_id is not
+null limit 3;` no SQL Editor.
+
 Checar sintaxe do JS sem abrir navegador: extrair o último bloco `<script>` e `node --check`.
+Vale também rodar o script inteiro num **stub de DOM** (`vm.runInContext`) para pegar erro de
+execução no boot e renderizar cada tela nova com dados de mentira — foi assim que as telas
+deste commit foram conferidas sem navegador. ⚠️ Nesse stub, `let`/`const` de topo **não**
+viram propriedades do objeto global: atribuir `ctx.historico = …` cria outra variável e o
+teste passa vazio sem acusar nada. Para mexer no estado real, `vm.runInContext("historico = …")`.
 
 ## Roadmap
 
@@ -352,9 +391,20 @@ Fases 2 a 7 estão no ar **e o `supabase-evolucao.sql` foi rodado** (ele confirm
 | **IA — Fase 1** (SQL + Edge Function) | ✅ **no ar e funcionando com o Gemini** desde 2026-07-29 |
 | **IA — Fase 2** (botões ✨, painel de aceite, chat do tema) | ✅ no ar, testado pelo Ricardo |
 | **IA — Fase 3** (`#revisar`, revisão espaçada) | ✅ escrita |
-| **Arquivar + `#historico`** | ✅ escrito 2026-07-30 — falta rodar o `supabase-arquivo.sql` |
-| **Quadro de projeto — Fase 2a** (pessoal) | ✅ escrito 2026-07-30 — falta rodar o `supabase-projetos.sql` |
+| **Arquivar + `#historico`** | ✅ **no ar e testado** 2026-07-30 — `supabase-arquivo.sql` rodado |
+| **Quadro de projeto — Fase 2a** (pessoal) | ✅ escrito e publicado 2026-07-30 — falta rodar o `supabase-projetos.sql` |
 | Quadro de projeto — Fase 2b (grupos) | ⏳ desenhado; **exige a segunda conta Google** |
+
+### O que foi verificado em 2026-07-30, e como
+
+O Ricardo rodou o `supabase-arquivo.sql` e confirmou os testes do site: arquivou um item
+concluído e **a sequência, os dias com estudo e o mapa de 12 semanas não se moveram** — que
+é o requisito inteiro do pedido dele, e sai de graça da arquitetura porque `diasDeEstudo()`
+lê o `progressoEm`, alimentado por `carregarProgresso()`, uma requisição que não conhece
+`itens`. O teste de RLS (`PATCH` anônimo com id real) devolveu corpo vazio, e
+`arquivados_por_anonimo` deu 0.
+
+Commits: `45830bd` (o recurso) e `ef91bf8` (o aviso do SQL Editor), publicados em `main`.
 
 O plano tem o desenho completo das duas partes e uma lista de outras ideias (busca global,
 pomodoro, exportar caderno, push, desfazer). Vale ler antes de propor qualquer uma.
@@ -368,19 +418,33 @@ velho.
 
 > ⚠️ Nada abaixo está autorizado a construir. O Ricardo escolhe um item por vez.
 
-**Já feito:** legibilidade da IA no celular ✅ 2026-07-29 — ver as armadilhas de grid e de
-`dvh` na lista acima. Falta ele confirmar no aparelho.
+**Já feito:** legibilidade da IA no celular ✅ 2026-07-29 (ver as armadilhas de grid e de
+`dvh` acima) · **arquivar + `#historico`** ✅ 2026-07-30, no ar e testado ·
+**quadro de tarefas Fase 2a** ✅ 2026-07-30, publicado.
 
-**Próximos, na ordem sugerida:**
+**O que está pendente AGORA, na ordem:**
 
 | | | Esforço |
 |---|---|---|
-| 1 | **Exercitar cartões e `#revisar`** — escritos em 2026-07-28 e **nunca executados uma vez**, porque a IA não respondia. Inclui as 3 verificações que dependiam disso: o freio de 12 recusa?, nada vira linha sem aceite, e **contexto respeita RLS** | zero código |
-| 2 | **Botão 🔍 no material sem link** — abre `google.com/search?q=<título + tema>`. Patch do vão que a perda da busca na web abriu. `encodeURIComponent` é obrigatório; o botão fica fora do `podeEditar()`, porque buscar não é editar | ~5 linhas |
-| 3 | **Busca global** — um campo procurando em tema, item, detalhe, **anotação** e material. Puro cliente, o `state` já tem tudo. Precisa de um `normalizar()` com `NFD` + remover diacrítico, senão "revisao" não acha "revisão". Ao destacar o trecho casado: `esc()` **primeiro**, marcação depois | baixo |
-| 4 | **Quadro de projeto** — Fase 2a (`projetos`/`tarefas`/`tarefa_comentarios`, `grupo_id` nulo = pessoal) e depois 2b (`grupos`, entrar por código, `eh_membro()` `security definer`). Desenho completo no plano antigo | grande |
-| 5 | **Arquivo do que já foi estudado** *(pedido dele, 2026-07-29)* — **6a**: tela `#historico`, só leitura, **zero mudança de schema**, porque `progresso` + `itens.nota` já guardam tudo. **6b**: `arquivado_em` em `itens`/`temas`, para tirar da lista sem destruir. Vem cedo por causa da armadilha de cascade acima | 6a baixo · 6b médio |
-| 6 | **Importar qualquer arquivo** *(pedido dele, 2026-07-29)* — `.txt`/`.md` direto; `.docx` sem biblioteca nenhuma, via `DecompressionStream("deflate-raw")` (é ZIP com `word/document.xml`); depois uma ação nova de IA `estruturar_trilha` com esquema, caindo no painel de aceite. `.pdf` fora de escopo | médio |
+| **0** | ⚠️ **Rodar o `supabase-projetos.sql`** — o código já está no ar; até rodar, o card 📁 não aparece. Conferir depois: `helper_no_lugar` = 1, 8 policies, **nenhuma com `true`**, e leitura anônima em `/rest/v1/projetos` dando **401** | zero código |
+| 1 | **Exercitar cartões e `#revisar`** — escritos em 2026-07-28 e **nunca executados uma vez**, porque a IA não respondia. Inclui as 3 verificações que dependiam disso: o freio recusa?, nada vira linha sem aceite, e **contexto respeita RLS** | zero código |
+| 2 | **Init do `#revisar`** — achado em 2026-07-30 e **não consertado**: abrir o app instalado direto em `#revisar` mostra zero cartões até navegar e voltar. Falta no IIFE de init a linha que o `#historico` e o `#projetos` já ganharam | 1 linha |
+| 3 | **Botão 🔍 no material sem link** — abre `google.com/search?q=<título + tema>`. Patch do vão que a perda da busca na web abriu. `encodeURIComponent` é obrigatório; o botão fica fora do `podeEditar()`, porque buscar não é editar | ~5 linhas |
+| 4 | **Busca global** — um campo procurando em tema, item, detalhe, **anotação** e material. Puro cliente, o `state` já tem tudo. Precisa de um `normalizar()` com `NFD` + remover diacrítico, senão "revisao" não acha "revisão". Ao destacar o trecho casado: `esc()` **primeiro**, marcação depois. ⚠️ Agora tem uma pergunta nova: buscar também no **arquivado**? Ele não está no `state` | baixo |
+| 5 | **Importar qualquer arquivo** *(pedido dele, 2026-07-29)* — `.txt`/`.md` direto; `.docx` sem biblioteca nenhuma, via `DecompressionStream("deflate-raw")` (é ZIP com `word/document.xml`); depois uma ação nova de IA `estruturar_trilha` com esquema, caindo no painel de aceite. `.pdf` fora de escopo | médio |
+| 6 | **Quadro — Fase 2b** (grupos) — `grupos`, `grupo_membros`, entrar por código, `eh_membro()` e `entrar_no_grupo()` `security definer`, realtime, `tarefa_comentarios`. **Dois pré-requisitos duros**: a segunda conta Google e o item 9 do `PLANO.md` (e-mail no `autor`) | grande |
+
+**O que a Fase 2a deixou pronto para a 2b, para não haver retrabalho:** `projetos.grupo_id`
+já existe (nulo, sem FK) e `tarefas` tem `user_id` próprio, então a 2b **não faz um único
+`drop policy` nem `alter column`** nas duas tabelas — só acrescenta a chave estrangeira, o
+`eh_membro()`, uma policy permissiva de select em cada tabela, e um `alter publication` para
+o realtime. O corpo do `meu_projeto()` ganha um `or`; nenhuma policy é tocada.
+
+**O que ficou conscientemente de fora do arquivar:** arquivar **material** (só `itens` e
+`temas`); lixeira/desfazer para exclusão de verdade; paginação do `#historico` (hoje
+`limit=1000`); e exportar o arquivado — o `exportJSON()` serializa o `state`, que já não os
+contém, então o Importar apaga o que o backup não guardou. Isso está dito no `confirm()` do
+Importar, mas o conserto de verdade não foi feito.
 
 Detalhe dos itens 5 e 6 no `PLANO.md`, com as armadilhas: o teto de tamanho do arquivo (um
 `.docx` grande queima uma das 12 chamadas do dia sem devolver nada), TXT do Word vindo em

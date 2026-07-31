@@ -247,11 +247,13 @@ Resumo do que decide a forma:
 
 ---
 
-## Item 6 — Arquivo do que já foi estudado (arquivar em vez de excluir) — ✅ ESCRITO 2026-07-30
+## Item 6 — Arquivo do que já foi estudado (arquivar em vez de excluir) — ✅ NO AR 2026-07-30
 
-> **Estado:** 6a e 6b escritos e no repositório. Falta o Ricardo rodar o
-> `supabase-arquivo.sql` e testar. Enquanto não rodar, o `#historico` já funciona (só a
-> lista de concluídos) e o botão 🗄 não aparece — a degradação de sempre.
+> **Estado: pronto, testado e publicado.** O Ricardo rodou o `supabase-arquivo.sql` e
+> confirmou o teste que era o pedido inteiro: arquivar um item **concluído** não moveu a
+> sequência, os dias com estudo nem o mapa de 12 semanas. O teste de RLS (`PATCH` anônimo com
+> id real) devolveu corpo vazio e `arquivados_por_anonimo` deu 0. Commits `45830bd` e
+> `ef91bf8`.
 >
 > **Uma decisão mudou em relação ao que está escrito abaixo:** o filtro do arquivado ficou
 > **no PostgREST**, dentro do `carregarTrilha()`, e não espalhado em cinco telas. O que não
